@@ -41,6 +41,7 @@ class Session:
     device_id: str = ""
     uid: str = ""
     token: str = ""
+    region: str = "kr"
     code_sent: float = 0
 
 sessions: dict[str, Session] = {}
@@ -96,6 +97,9 @@ def _converter():
         send_yostar_email_code, authenticate_yostar, fetch_majsoul
     )
     from mahjong_url_parser.urls import parse_replay_url
+    from regional_auth import patch_connection_handshake
+    from mahjong_url_parser.sources import majsoul as upstream
+    patch_connection_handshake(upstream)
     return (MahjongSoulCredentials, ServerRegion, ReplayNotFoundError,
             send_yostar_email_code, authenticate_yostar, fetch_majsoul, parse_replay_url)
 
@@ -132,66 +136,50 @@ def _throttle(key: str, limit: int = 4, duration: int = 900):
         marks.append(now)
 
 
-async def _fetch_global_region_first(reference, credentials):
-    """Fetch KR/EN shares on EN gateways first, with JP as a fallback.
+async def _fetch_by_region(reference, credentials, login_region: str):
+    """Use a Yostar session issued for the same account's SDK region.
 
-    Upstream fetch_majsoul always tries JP first even for an EN URL and only
-    falls back for some failures. A Yostar login can succeed while the JP
-    game-account login fails, preventing the lookup of a KR record entirely.
-
-    Keep upstream authentication, bootstrap, websocket and Tenhou conversion
-    logic. Only correct the region ordering for EN / Korean shared URLs.
+    Korean and English share EN gateways but have different SDK identities.
+    No cross-region login fallback: a failed JP login is not proof the KR
+    account is unbound, and vice versa.
     """
     from mahjong_url_parser.models import (
-        AuthenticationRequired, RemoteReplayError, ReplayNotFoundError,
-        ServerRegion, VerificationCodeRequired,
+        RemoteReplayError, ReplayNotFoundError, ServerRegion
     )
     from mahjong_url_parser.sources import majsoul as upstream
-    login_session = await upstream.authenticate_yostar(credentials)
-    failures = []
-    for region in (ServerRegion.EN, ServerRegion.JP):
+    from regional_auth import regional_client
+
+    target = ServerRegion.JP if login_region == "jp" else ServerRegion.EN
+    client = regional_client(login_region, credentials.yostar_device_id)
+    session = await client.refresh(credentials.yostar_uid, credentials.yostar_token)
+    version, gateways = await upstream._bootstrap(target)
+    # Unity builds released since July 2026 require WebGL_2022, not web-
+    if version.startswith("web-"):
+        version = "WebGL_2022-" + version[4:]
+    errors = []
+    for endpoint in gateways:
         try:
-            version, gateways = await upstream._bootstrap(region)
-            last_gateway_error = None
-            for endpoint in gateways:
-                try:
-                    return await upstream._fetch_from_gateway(
-                        endpoint, reference, credentials, version,
-                        target_region=region, yostar_session=login_session,
-                    )
-                except (ReplayNotFoundError, AuthenticationRequired,
-                        VerificationCodeRequired, RemoteReplayError):
-                    # Semantic failures aren't resolved by switching endpoints
-                    # within the same region, but another region may work.
-                    raise
-                except Exception as exc:
-                    last_gateway_error = exc
-            raise RemoteReplayError(
-                f"{region.value} gateway unavailable ({type(last_gateway_error).__name__})"
-            ) from last_gateway_error
-        except (AuthenticationRequired, VerificationCodeRequired):
+            return await upstream._fetch_from_gateway(
+                endpoint, reference, credentials, version,
+                target_region=target, yostar_session=session,
+            )
+        except (RemoteReplayError, ReplayNotFoundError):
+            # Semantic OAuth failures cannot be fixed by changing a gateway.
             raise
-        except Exception as exc:
-            # Try the other region, but keep the EN error for diagnosis if both
-            # fail. No credentials or raw server response go to the browser.
-            failures.append(exc)
-    if failures:
-        raise failures[0]
-    raise RemoteReplayError('No replay gateways available')
+        except Exception as err:
+            errors.append(type(err).__name__)
+    raise RemoteReplayError('게임 게이트웨이에 연결하지 못했습니다: ' +
+                            (errors[-1] if errors else 'NoGateway'))
 
 
 def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
-    (Credentials, Region, _, _, _, fetch, parse) = _converter()
-    # Keep path (/kr/ if present), host, paipu ID and viewer suffix intact.
+    (Credentials, Region, _, _, _, _, parse) = _converter()
     reference = parse(extract_share_url(text))
     credentials = Credentials(region=Region.JP, email=session.email,
                               yostar_uid=session.uid, yostar_token=session.token,
                               yostar_device_id=session.device_id)
-    async def run():
-        if reference.source_region is Region.EN:
-            return await _fetch_global_region_first(reference, credentials)
-        return await fetch(reference, credentials)
-    result = asyncio.run(asyncio.wait_for(run(), timeout=100))
+    result = asyncio.run(asyncio.wait_for(
+        _fetch_by_region(reference, credentials, session.region), timeout=100))
     if result.yostar_session:
         with lock:
             session.uid = result.yostar_session.uid
@@ -201,24 +189,34 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
 
 
 def public_fetch_error(error: Exception) -> tuple[int, dict]:
-    """Actionable diagnosis without exposing login tokens or upstream URLs."""
-    kind = type(error).__name__
     detail = str(error)
-    if kind == 'ReplayNotFoundError' or '没有找到' in detail:
-        return 404, {'code': 'REPLAY_NOT_FOUND', 'error': '작혼 서버에 이 패보가 없습니다. 공유 링크의 서버 지역과 패보 공개 여부를 확인해 주세요.'}
-    if kind in ('AuthenticationRequired', 'VerificationCodeRequired') or any(
-        flag in detail for flag in ('OAuth2', '授权', '登录失败', '未绑定雀魂账号')
-    ):
-        return 401, {'code': 'GAME_LOGIN_FAILED', 'needs_auth': True,
-                     'error': 'Yostar 인증은 완료됐지만 게임 서버 로그인에 실패했습니다. 해당 지역의 작혼 계정 연결을 확인하고 다시 인증해 주세요.'}
-    if any(flag in detail for flag in ('转换为 Tenhou', '转换组件不完整', '校验', '牌谱数据')):
-        return 502, {'code': 'CONVERSION_FAILED',
-                     'error': '패보를 받았지만 천봉 JSON 변환에 실패했습니다. 서버 변환기 업데이트가 필요할 수 있습니다.'}
-    if any(flag in detail for flag in ('无法连接', '连接超时', '配置服务器', '网页未返回', 'gateway unavailable', 'NetworkError')):
-        return 503, {'code': 'GAME_GATEWAY_UNREACHABLE',
-                     'error': '작혼 게임 서버 연결 또는 클라이언트 버전 조회에 실패했습니다. 잠시 후 다시 시도해 주세요.'}
-    return 502, {'code': 'UPSTREAM_REPLAY_FAILED',
-                 'error': '작혼 패보를 가져오지 못했습니다. Render 서버의 최신 Deploy 로그에서 REPLAY_FAILED 분류를 확인해 주세요.'}
+    if type(error).__name__ == 'ReplayNotFoundError':
+        return 404, {'code':'REPLAY_NOT_FOUND',
+                     'error':'이 서버에서 패보를 찾지 못했습니다. 공유 링크와 서버 지역을 확인해 주세요.'}
+    if '尚未绑定' in detail or '未绑定雀魂账号' in detail:
+        return 403, {'code':'GAME_ACCOUNT_UNBOUND',
+                     'error':'해당 인증 지역의 Yostar 계정에 작혼 게임 계정이 연결되지 않았다는 응답입니다. 한국/일본/영문 로그인 지역을 확인해 주세요.'}
+    if 'OAuth2' in detail or '雀魂登录失败' in detail or '登录未返回' in detail:
+        import re as _re
+        match = _re.search(r'(?:代码|code)\s*(\d+)', detail)
+        code = match.group(1) if match else 'unknown'
+        # 151 commonly means client protocol/version mismatch, not bad credentials.
+        if code == '151':
+            return 502, {'code':'GAME_PROTOCOL_MISMATCH', 'stage':'oauth',
+                         'error':'게임 서버가 로그인 프로토콜 또는 버전을 거부했습니다 (151). 이메일 재인증보다 서버 코드 업데이트가 필요합니다.'}
+        return 502, {'code':'GAME_OAUTH_FAILED', 'stage':'oauth',
+                     'error':f'작혼 게임 서버 OAuth 인증 단계에서 거부했습니다 (코드 {code}). 계정 미연동으로 단정할 수 없습니다.'}
+    if '게임 게이트웨이' in detail or '连接' in detail or '초기화' in detail:
+        return 503, {'code':'GAME_GATEWAY_ERROR', 'stage':'connect',
+                     'error':'작혼 게임 서버 연결 또는 연결 초기화 실패입니다. 네트워크/프로토콜 상태를 확인해야 합니다.'}
+    if '转换' in detail or '校验' in detail:
+        return 502, {'code':'CONVERSION_FAILED', 'stage':'convert',
+                     'error':'서버가 패보를 받았지만 JSON 변환에 실패했습니다.'}
+    if type(error).__name__ in ('AuthenticationRequired', 'VerificationCodeRequired'):
+        return 401, {'code':'SDK_SESSION_EXPIRED', 'needs_auth':True,
+                     'error':'인증 세션이 만료됐습니다. Yostar 인증을 다시 진행해 주세요.'}
+    return 502, {'code':'REPLAY_FETCH_FAILED',
+                 'error':f'패보 조회에 실패했습니다 (유형 {type(error).__name__}). 서버 로그의 오류 분류를 확인해 주세요.'}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -289,12 +287,14 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if urlsplit(self.path).path == '/api/health':
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
-                                  'url_fetch_available': package_ready()})
+                                  'url_fetch_available': package_ready(),
+                                  'version': '2.3'})
             return
         if urlsplit(self.path).path == '/api/auth/status':
             _, s = self._get_session()
             self.json_reply(200, {'authenticated': bool(s and s.uid and s.token),
-                                  'email': s.email if s and s.uid else ''})
+                                  'email': s.email if s and s.uid else '',
+                                  'region': s.region if s and s.uid else 'kr'})
             return
         self.path = urlsplit(self.path).path
         if self.path == '/':
@@ -309,6 +309,9 @@ class Handler(SimpleHTTPRequestHandler):
             body = self._read_request()
             if action == '/api/auth/send-code':
                 email = str(body.get('email', '')).strip().lower()
+                region = str(body.get('region', 'kr')).lower()
+                if region not in ('kr','jp','en'):
+                    raise ValueError('인증 지역은 한국/일본/영문 중 선택해 주세요.')
                 if not EMAIL.fullmatch(email) or len(email) > 254:
                     raise ValueError('올바른 Yostar 로그인 이메일을 입력해 주세요.')
                 if not package_ready():
@@ -319,10 +322,14 @@ class Handler(SimpleHTTPRequestHandler):
                 # Per-address and per-client basic throttling, no email logs.
                 _throttle('email:' + email, 4, 3600)
                 _throttle('ip:' + self.client_address[0], 10, 3600)
-                (_, Region, _, send, _, _, _) = _converter()
-                device = asyncio.run(asyncio.wait_for(send(Region.JP, email, device_id=s.device_id), timeout=40))
+                _converter()
+                from regional_auth import regional_client
+                client = regional_client(region, s.device_id if s.region == region else '')
+                asyncio.run(asyncio.wait_for(client.send_email_code(email), timeout=40))
+                device = client.device_id
                 with lock:
-                    s.email, s.device_id, s.code_sent = email, device, time.monotonic()
+                    s.email, s.device_id, s.region, s.code_sent = email, device, region, time.monotonic()
+                    s.uid, s.token = "", ""
                 return self.json_reply(200, {'ok': True, 'message': 'Yostar 인증 메일을 보냈습니다.'}, sid=sid)
 
             sid, s = self._get_session()
@@ -333,10 +340,10 @@ class Handler(SimpleHTTPRequestHandler):
                 if not re.fullmatch(r'\d{4,10}', code) or not s.email or not s.device_id:
                     raise ValueError('이메일 인증코드를 입력해 주세요.')
                 _throttle('verify:' + sid, 8, 900)
-                (Credentials, Region, _, _, authenticate, _, _) = _converter()
-                credentials = Credentials(region=Region.JP, email=s.email, verification_code=code,
-                                          yostar_device_id=s.device_id)
-                verified = asyncio.run(asyncio.wait_for(authenticate(credentials), timeout=50))
+                _converter()
+                from regional_auth import regional_client
+                client = regional_client(s.region, s.device_id)
+                verified = asyncio.run(asyncio.wait_for(client.exchange_email_code(s.email, code), timeout=50))
                 with lock:
                     s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
                 return self.json_reply(200, {'ok': True, 'authenticated': True}, sid=sid)
@@ -349,6 +356,12 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.json_reply(401, {'error': '먼저 Yostar 이메일 인증을 완료해 주세요.', 'needs_auth': True})
                 url = extract_share_url(str(body.get('url', '')))
                 _, host = parse_url(url)
+                if host == 'mahjongsoul.game.yo-star.com' and s.region == 'jp':
+                    return self.json_reply(409, {'code':'REGION_MISMATCH',
+                        'error':'영문/한국 작혼 링크는 영문 또는 한국 Yostar 지역 인증을 선택해 주세요.'})
+                if host in ('game.mahjongsoul.com','mahjongsoul.com','www.mahjongsoul.com') and s.region != 'jp':
+                    return self.json_reply(409, {'code':'REGION_MISMATCH',
+                        'error':'일본 작혼 링크는 일본 Yostar 지역 인증을 선택해 주세요.'})
                 if host in ('game.maj-soul.com', 'game.maj-soul.net'):
                     raise ValueError('중국 서버 링크는 별도의 중국 서버 계정 인증이 필요합니다.')
                 result = fetch_from_mahjongsoul(url, s)

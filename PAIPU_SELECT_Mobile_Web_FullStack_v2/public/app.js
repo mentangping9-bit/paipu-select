@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const parser = globalThis.NagaParser;
 let rounds = []; let chosen = new Set(); let mode = 'url'; let latestFile = ''; let busy = false;
-let koreanServerReady = null; let authenticated = false;
+let koreanServerReady = null; let authenticated = false; let manualRegion = false;
 function alertError(message){const el=$('errorBox');el.textContent=message;el.hidden=false;}
 function clearError(){$('errorBox').hidden=true;$('backendInfo').hidden=true;}
 let toastTimer=0;
@@ -31,6 +31,13 @@ catch(e){alertError(e.message);return;}
  busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent='작혼 패보를 가져오는 중…';try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),110000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===401){$('authPanel').scrollIntoView({behavior:'smooth',block:'center'});toast('먼저 Yostar 이메일 인증을 완료하세요.');}throw Error(data.error||`서버 오류 HTTP ${response.status}`);}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?'110초 동안 서버 응답이 없습니다.':e.message;if(e instanceof TypeError){$('backendDetail').textContent='변환 서버에 연결할 수 없습니다.';$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;btn.disabled=false;btn.innerHTML='패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span>';}}
 async function copyOutput(){const text=$('outputArea').value;try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');}catch{const el=$('outputArea');el.focus();el.select();try{document.execCommand('copy');toast('URL을 복사했어요.');}catch{toast('복사할 URL을 길게 눌러 선택해 주세요.');}}}
 function saveOutput(){const url=URL.createObjectURL(new Blob([$('outputArea').value],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='NAGA_selected_rounds.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+$('regionSelect').onchange=()=>{manualRegion=true;};
+$('paipuInput').addEventListener('input',()=>{
+  if(manualRegion||authenticated)return;
+  const value=$('paipuInput').value;
+  if(/game\.mahjongsoul\.com/.test(value))$('regionSelect').value='jp';
+  else if(/mahjongsoul\.game\.yo-star\.com/.test(value))$('regionSelect').value='kr';
+});
 $('urlTab').onclick=()=>switchTab('url');$('fileTab').onclick=()=>switchTab('file');$('convertUrlBtn').onclick=loadFromUrl;$('jsonInput').onchange=e=>readFile(e.target.files?.[0]);const zone=$('dropzone');zone.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('jsonInput').click();}};zone.ondragover=e=>{e.preventDefault();zone.classList.add('hover');};zone.ondragleave=()=>zone.classList.remove('hover');zone.ondrop=e=>{e.preventDefault();zone.classList.remove('hover');readFile(e.dataTransfer?.files?.[0]);};
 $('resetBtn').onclick=()=>{$('inputPanel').hidden=false;$('roundPanel').hidden=true;$('resultPanel').hidden=true;clearError();$('inputPanel').scrollIntoView({behavior:'smooth'});};$('allBtn').onclick=()=>setChosen(()=>true);$('noneBtn').onclick=()=>setChosen(()=>false);$('eastBtn').onclick=()=>setChosen(r=>r.roundNo<4);$('southBtn').onclick=()=>setChosen(r=>r.roundNo>=4&&r.roundNo<8);$('generateBtn').onclick=buildOutput;$('copyBtn').onclick=copyOutput;$('downloadBtn').onclick=saveOutput;$('editBtn').onclick=()=>{$('resultPanel').hidden=true;$('roundPanel').hidden=false;};
 // Server-backed Yostar authentication; no passwords and no session token in JS storage.
@@ -47,7 +54,8 @@ async function refreshAuth(){
     authenticated=!!data.authenticated;
     $('authLoggedOut').hidden=authenticated;
     $('authLoggedIn').hidden=!authenticated;
-    $('signedInEmail').textContent=data.email||'로그인됨';
+    $('signedInEmail').textContent=(data.email||'로그인됨')+' · '+String(data.region||'kr').toUpperCase();
+    if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=false;}
     $('authStatus').textContent=authenticated?'Yostar 이메일 인증 완료 · 패보 조회 준비':'작혼 패보를 읽기 위한 이메일 인증';
   }catch(e){authenticated=false;}
 }
@@ -56,7 +64,7 @@ $('sendCodeBtn').onclick=async()=>{
   const btn=$('sendCodeBtn');btn.disabled=true;
   clearError();btn.textContent='발송 중…';
   try{
-    await api('/api/auth/send-code',{email:$('emailInput').value.trim()});
+    await api('/api/auth/send-code',{email:$('emailInput').value.trim(),region:$('regionSelect').value});
     $('verifyRow').hidden=false;toast('Yostar 인증 메일을 확인해 주세요.');$('codeInput').focus();
   }catch(e){authError(e);}
   finally{btn.disabled=false;btn.textContent='인증 메일 발송';}
