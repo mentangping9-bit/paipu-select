@@ -91,6 +91,13 @@ def parse_url(text: str) -> tuple[str, str]:
 
 
 def check_tenhou(v):
+    # tensoul emits NamedTuple Round headers and tuple result records. JSON
+    # represents both as arrays; validate that wire representation, not Python
+    # container implementation details. This does not change any tile or score.
+    try:
+        v = json.loads(json.dumps(v, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError):
+        raise ValueError('천봉 JSON으로 표현할 수 없는 데이터입니다.') from None
     if not isinstance(v, dict) or not isinstance(v.get("log"), list) or not v["log"]:
         raise ValueError("천봉 JSON의 log 데이터가 없습니다.")
     if len(v["log"]) > 120 or len(json.dumps(v, ensure_ascii=False)) > MAX_JSON:

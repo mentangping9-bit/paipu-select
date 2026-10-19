@@ -1,11 +1,17 @@
 # Authentication investigation — 2026-10-19
 
-Status: implementation corrections and offline regressions verified; live game
-login and the two supplied Korean/JP replay downloads are still unverified.
+Status: actual KR account game login and retrieval of the supplied Korean replay
+succeeded on 2026-10-19. The server auth status showed authenticated=true,
+game_authenticated=true, region=kr. The first conversion response was rejected
+by the old list-only validator, because tensoul emits tuple round headers and
+result records. JSON-array normalization and a real converter-output regression
+were added. Final full-path replay response and NAGA acceptance remain pending.
 The first live-account test reached oauth_auth and returned code 151 with resource
 version 0.16.229. A credential-free A/B control reproduced 151 with 0.16.229
 and returned the expected invalid-credential code 110 with 0.16.266.
-Successful live account authentication remains unverified after this correction.
+The subsequent live KR account authentication succeeded using type 23 and the
+resolved 0.16.266 resource version. Thus the authentication correction is now
+account-verified, independently of final conversion-response validation.
 
 ## Observed deployment
 
