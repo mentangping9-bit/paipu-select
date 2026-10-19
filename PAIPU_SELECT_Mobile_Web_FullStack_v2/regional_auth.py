@@ -1,62 +1,28 @@
-"""Per-region Yostar SDK credentials and 2026 Unity connection handshake.
+"""Shared Yostar international SDK authentication + game handshake.
 
-This module reuses upstream's authenticated HTTPS request implementation.
-It never logs or returns Yostar credentials. Network login requires live validation.
+Korean, English, and Japanese game regions use the SAME upstream JP SDK token
+issuer. The game gateway and oauth type still differ by region. v2.3 issued
+an invented KR-MAJONGSOUL SDK identity which caused OAuth2 error 110.
+Never log tokens, email or one-time codes.
 """
 from __future__ import annotations
 import time
 import uuid
 
-REGIONS = {
-    # Korean web frontend shares the EN game gateway but has its own SDK identity.
-    "kr": ("KR", "KR-MAJONGSOUL", "kr", "https://jp-sdk-api.yostarplat.com"),
-    "jp": ("JP", "JP-MAJONGSOUL", "jp", "https://jp-sdk-api.yostarplat.com"),
-    "en": ("US", "US-MAJONGSOUL", "en", "https://en-sdk-api.yostarplat.com"),
-}
+# The upstream converter documents ONE international Yostar account system.
+# IMPORTANT: "kr" / "en" select the game REPLAY gateway, not the issuer of
+# the Yostar SDK token. oauth2Auth rejects independently invented SDK PIDs.
+# Keep the original upstream YostarClient untouched, including its request
+# signing, JP-MJ project identifier, login payload and sdk version.
+VALID_REGIONS = frozenset({"kr", "jp", "en"})
 
 
 def regional_client(region: str, device_id: str = ""):
-    if region not in REGIONS:
+    if region not in VALID_REGIONS:
         raise ValueError("지원하지 않는 Yostar 인증 지역입니다.")
     from mahjong_url_parser.models import ServerRegion
     from mahjong_url_parser.sources.yostar import YostarClient
-
-    identifier, pid, lang, sdk = REGIONS[region]
-
-    class RegionClient(YostarClient):
-        def __init__(self):
-            super().__init__(ServerRegion.JP if region != "en" else ServerRegion.EN,
-                             device_id=device_id)
-            self.base_url = sdk
-            self.region = ServerRegion.JP if region == "jp" else ServerRegion.EN
-
-        def _head(self, *, uid="", token=""):
-            head = super()._head(uid=uid, token=token)
-            head.update({"Region": identifier, "PID": pid, "Lang": lang,
-                         "Version": "4.16.2"})
-            return head
-
-        async def exchange_email_code(self, email, code):
-            # New 2026 Yostar SDK expects CheckAccountPlus on user/login.
-            from mahjong_url_parser.sources.yostar import YostarSession
-            auth = await self._post("yostar/get-auth",
-                                    {"Account": email.strip(), "Code": code.strip()})
-            try:
-                email_token = str(auth["Data"]["Token"])
-            except (KeyError, TypeError) as exc:
-                raise ValueError("Yostar 인증 토큰을 받지 못했습니다.") from exc
-            login = await self._post("user/login", {
-                "Type": "yostar", "OpenID": email.strip(), "Token": email_token,
-                "Secret": "", "CheckAccountPlus": 0,
-            })
-            try:
-                info = login["Data"]["UserInfo"]
-                return YostarSession(uid=str(info["ID"]), token=str(info["Token"]),
-                                     device_id=self.device_id)
-            except (KeyError, TypeError) as exc:
-                raise ValueError("Yostar 계정 세션을 받지 못했습니다.") from exc
-
-    return RegionClient()
+    return YostarClient(ServerRegion.JP, device_id=device_id)
 
 
 def _varint(n: int) -> bytes:
