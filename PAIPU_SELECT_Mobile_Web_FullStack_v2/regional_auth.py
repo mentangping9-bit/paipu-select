@@ -39,15 +39,27 @@ def regional_client(region: str, device_id: str = ""):
 
         async def send_email_code(self, email):
             # Mirror Soulless 0.3.2, without additional undocumented keys.
-            await self._post("yostar/send-code", {"Account": email.strip()})
+            # Match the upstream YostarClient request exactly. A successful
+            # email delivery by itself does not validate the SDK session.
+            await self._post("yostar/send-code", {
+                "Account": email.strip(), "Randstr": "", "Ticket": "",
+            })
 
         async def exchange_email_code(self, email, code):
             auth = await self._post("yostar/get-auth",
                                     {"Account": email.strip(), "Code": code.strip()})
             token = str(auth["Data"]["Token"])
+            # The old site used an undocumented CheckAccountPlus field and
+            # omitted UserName, Geetest and CheckAccount. This payload follows
+            # Mahjong-Replay-Converter's upstream Yostar login implementation.
             login = await self._post("user/login", {
-                "Type": "yostar", "OpenID": email.strip(), "Token": token,
-                "Secret": "", "CheckAccountPlus": 0,
+                "CheckAccount": 0,
+                "Geetest": {
+                    "CaptchaID": None, "CaptchaOutput": None,
+                    "GenTime": None, "LotNumber": None, "PassToken": None,
+                },
+                "OpenID": email.strip(), "Secret": "", "Token": token,
+                "Type": "yostar", "UserName": email.strip(),
             })
             info = login["Data"]["UserInfo"]
             return YostarSession(uid=str(info["ID"]), token=str(info["Token"]),
@@ -109,8 +121,9 @@ def patch_connection_handshake(upstream):
         # when the 2026 client sends "WebGL_2022-<version>".
         async def oauth_login(lobby, session, version, target_region):
             from ms import protocol_pb2 as pb
-            # Soulless 0.3.2 uses type 22 for current Yostar sessions.
-            oauth_type = 22
+            # The upstream protocol uses 21 for JP, 22 for EN/KR. Previous
+            # PAIPU SELECT versions always sent 22, including on JP gateway.
+            oauth_type = 21 if target_region is upstream.ServerRegion.JP else 22
             req = pb.ReqOauth2Auth(
                 type=oauth_type, code=session.token, uid=session.uid,
                 client_version_string=version)
@@ -134,7 +147,7 @@ def patch_connection_handshake(upstream):
             upstream._fill_device(login.device)
             login.random_key = str(uuid.uuid4())
             if "client_version" in login.DESCRIPTOR.fields_by_name:
-                login.client_version.resource = version.rsplit("-", 1)[-1]
+                login.client_version.resource = version.removeprefix("WebGL_2022-").removeprefix("web-")
             login.client_version_string = version
             login.currency_platforms.extend([1, 4, 5, 9, 12])
             upstream._set_if_present(login, "version", 0)

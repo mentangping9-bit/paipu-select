@@ -329,7 +329,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path == '/api/health':
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '2.5'})
+                                  'version': '2.6'})
             return
         if urlsplit(self.path).path == '/api/auth/status':
             _, s = self._get_session()
