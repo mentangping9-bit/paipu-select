@@ -18,7 +18,7 @@
     <section class="panel" id="inputPanel">
       <div class="panel-head"><div><span class="mini">STEP 01 / IMPORT</span><h2>패보 불러오기</h2></div><div class="indicator"> <span class="indicator-bubble"></span> 4인 마작 전용</div></div>
       <div class="tabbar" role="tablist" aria-label="패보 입력 방법"><button id="urlTab" class="tab active" role="tab" aria-selected="true" type="button">작혼 패보 링크</button><button id="fileTab" class="tab" role="tab" aria-selected="false" type="button">JSON 파일</button></div>
-      <div id="urlMode" class="input-content"><label for="paipuInput" class="field-label">작혼 공유 URL</label><textarea id="paipuInput" rows="2" spellcheck="false" placeholder="https://game.mahjongsoul.com/?paipu=..." autocomplete="off"></textarea><p class="hint">패보 링크를 넣고 불러오세요. Yostar 인증은 최초 1회 또는 세션 만료 시 진행합니다.</p>
+      <div id="urlMode" class="input-content"><label for="paipuInput" class="field-label">작혼 공유 URL</label><textarea id="paipuInput" rows="2" spellcheck="false" placeholder="작혼 패보:https://mahjongsoul.game.yo-star.com/?paipu=..." autocomplete="off"></textarea><p class="hint">한국어·日本語·English로 복사한 작혼 패보 공유 문구 전체를 그대로 붙여넣어도 됩니다. Yostar 인증은 최초 1회 또는 세션 만료 시 진행합니다.</p>
       <div class="auth-box" id="authPanel">
         <div class="auth-title"><span class="auth-circle">🔐</span><div><strong>Yostar 계정 인증</strong><small id="authStatus">작혼 패보를 읽기 위한 이메일 인증</small></div></div>
         <div id="authLoggedOut">
@@ -57,6 +57,6 @@
   </main>
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
-<script src="./converter.js"></script><script src="./app.js"></script>
+<script src="./converter.js"></script><script src="./link-utils.js"></script><script src="./app.js"></script>
 </body>
 </html>
