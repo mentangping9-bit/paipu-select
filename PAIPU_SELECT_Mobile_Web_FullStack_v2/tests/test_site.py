@@ -97,26 +97,38 @@ class API(unittest.TestCase):
         cls.server.shutdown();cls.worker.join(timeout=5);cls.server.server_close()
         cls.patcher.stop()
     def test_login_and_convert(self):
+        import regional_auth
+        class Client:
+            device_id='device-1'
+            async def send_email_code(self,email): return None
+            async def exchange_email_code(self,email,code):
+                assert code=='123456'
+                return Auth()
+        def make_client(region,device_id=''):
+            assert region=='kr'
+            return Client()
+        async def fake_fetch(ref, credentials, login_region, *, use_fresh_session=False):
+            assert use_fresh_session is True
+            assert login_region=='kr'
+            assert credentials.yostar_token=='demo-token'
+            return Result(FIXTURE,Auth())
         jar=http.cookiejar.CookieJar()
         opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
         def post(path,value):
             raw=json.dumps(value).encode()
             return json.load(opener.open(urllib.request.Request(self.url+path,data=raw,headers={'Content-Type':'application/json'})))
-        self.assertTrue(json.load(opener.open(self.url+'/api/health'))['kr_fetch_available'])
-        self.assertFalse(json.load(opener.open(self.url+'/api/auth/status'))['authenticated'])
-        self.assertTrue(post('/api/auth/send-code',{'email':'sample@example.com'})['ok'])
-        self.assertTrue(post('/api/auth/verify',{'code':'123456'})['authenticated'])
-        self.assertTrue(json.load(opener.open(self.url+'/api/auth/status'))['authenticated'])
-        self.assertEqual(len(post('/api/convert',{'url':'작혼패보 : '+URL})['log']),10)
-        async def en_first(reference, credentials):
-            assert reference.source_region=='en'
-            assert credentials.yostar_token == 'demo-token'
-            return Result(FIXTURE,Auth())
-        # Simulate the upstream region-EN parser and the EN-first implementation.
-        with patch.object(server, '_fetch_global_region_first', en_first):
-            with patch.object(server, '_converter', lambda: (Cred,Region,ReplayNotFoundError,code_fn,authenticate,fetch,lambda url:Ref(source_region='en' if 'yo-star.com' in url else 'jp'))):
-                self.assertEqual(len(post('/api/convert',{'url':'작혼 패보:'+KR_URL})['log']),10)
-        self.assertTrue(post('/api/auth/logout',{})['ok'])
-        self.assertFalse(json.load(opener.open(self.url+'/api/auth/status'))['authenticated'])
+        with patch.object(regional_auth,'regional_client',make_client), \
+             patch.object(server,'_fetch_by_region',fake_fetch):
+            self.assertTrue(json.load(opener.open(self.url+'/api/health'))['kr_fetch_available'])
+            self.assertFalse(json.load(opener.open(self.url+'/api/auth/status'))['authenticated'])
+            self.assertTrue(post('/api/auth/send-code',{'email':'sample@example.com','region':'kr'})['ok'])
+            self.assertTrue(post('/api/auth/verify',{'code':'123456'})['authenticated'])
+            self.assertEqual(json.load(opener.open(self.url+'/api/auth/status'))['region'],'kr')
+            self.assertEqual(len(post('/api/convert',{'url':'작혼 패보:'+KR_URL})['log']),10)
+            with self.assertRaises(urllib.error.HTTPError) as exc:
+                post('/api/convert',{'url':URL})
+            self.assertEqual(exc.exception.code,409)
+            self.assertTrue(post('/api/auth/logout',{})['ok'])
+            self.assertFalse(json.load(opener.open(self.url+'/api/auth/status'))['authenticated'])
 
 if __name__=='__main__':unittest.main()

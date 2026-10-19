@@ -43,6 +43,7 @@ class Session:
     token: str = ""
     region: str = "kr"
     code_sent: float = 0
+    fresh_token_at: float = 0
 
 sessions: dict[str, Session] = {}
 auth_attempts: dict[str, list[float]] = {}
@@ -183,8 +184,12 @@ async def _bootstrap_for_account(upstream, region: str):
         "작혼 서버에서 해당 지역의 유효한 접속 경로 ID를 가져오지 못했습니다.")
 
 
-async def _fetch_by_region(reference, credentials, login_region: str):
-    """Obtain account-region token, route/version, then fetch replay."""
+async def _fetch_by_region(reference, credentials, login_region: str, *, use_fresh_session: bool = False):
+    """Use a newly issued login session directly; refresh only saved sessions.
+
+    Soulless separates the new-device Yostar login path from the saved-session
+    quick-login path. A fresh login is already an authenticated SDK session.
+    """
     from mahjong_url_parser.models import (
         RemoteReplayError, ReplayNotFoundError, ServerRegion
     )
@@ -192,8 +197,14 @@ async def _fetch_by_region(reference, credentials, login_region: str):
     from regional_auth import regional_client, route_context
 
     target = ServerRegion.JP if login_region == "jp" else ServerRegion.EN
-    client = regional_client(login_region, credentials.yostar_device_id)
-    session = await client.refresh(credentials.yostar_uid, credentials.yostar_token)
+    if use_fresh_session:
+        from mahjong_url_parser.sources.yostar import YostarSession
+        session = YostarSession(uid=credentials.yostar_uid,
+                                token=credentials.yostar_token,
+                                device_id=credentials.yostar_device_id)
+    else:
+        client = regional_client(login_region, credentials.yostar_device_id)
+        session = await client.refresh(credentials.yostar_uid, credentials.yostar_token)
     version, routes = await _bootstrap_for_account(upstream, login_region)
     errors = []
     for endpoint, route_id in routes:
@@ -219,13 +230,18 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
     credentials = Credentials(region=Region.JP, email=session.email,
                               yostar_uid=session.uid, yostar_token=session.token,
                               yostar_device_id=session.device_id)
+    use_fresh = bool(session.fresh_token_at and
+                     0 <= time.monotonic() - session.fresh_token_at < 300)
     result = asyncio.run(asyncio.wait_for(
-        _fetch_by_region(reference, credentials, session.region), timeout=100))
+        _fetch_by_region(reference, credentials, session.region,
+                         use_fresh_session=use_fresh), timeout=100))
     if result.yostar_session:
         with lock:
             session.uid = result.yostar_session.uid
             session.token = result.yostar_session.token
             session.device_id = result.yostar_session.device_id
+    with lock:
+        session.fresh_token_at = 0
     return check_tenhou(result.payload)
 
 
@@ -329,7 +345,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path == '/api/health':
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '2.6'})
+                                  'version': '2.7'})
             return
         if urlsplit(self.path).path == '/api/auth/status':
             _, s = self._get_session()
@@ -371,6 +387,7 @@ class Handler(SimpleHTTPRequestHandler):
                 with lock:
                     s.email, s.device_id, s.region, s.code_sent = email, device, region, time.monotonic()
                     s.uid, s.token = "", ""
+                    s.fresh_token_at = 0
                 return self.json_reply(200, {'ok': True, 'message': 'Yostar 인증 메일을 보냈습니다.'}, sid=sid)
 
             sid, s = self._get_session()
@@ -387,6 +404,7 @@ class Handler(SimpleHTTPRequestHandler):
                 verified = asyncio.run(asyncio.wait_for(client.exchange_email_code(s.email, code), timeout=50))
                 with lock:
                     s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
+                    s.fresh_token_at = time.monotonic()
                 return self.json_reply(200, {'ok': True, 'authenticated': True}, sid=sid)
             if action == '/api/auth/logout':
                 with lock:
