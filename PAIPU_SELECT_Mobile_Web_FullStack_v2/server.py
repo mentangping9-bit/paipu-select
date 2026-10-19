@@ -136,38 +136,79 @@ def _throttle(key: str, limit: int = 4, duration: int = 900):
         marks.append(now)
 
 
-async def _fetch_by_region(reference, credentials, login_region: str):
-    """Use a Yostar session issued for the same account's SDK region.
+async def _bootstrap_for_account(upstream, region: str):
+    """Use the regional web version AND route id; KR is not EN language.
 
-    Korean and English share EN gateways but have different SDK identities.
-    No cross-region login fallback: a failed JP login is not proof the KR
-    account is unbound, and vice versa.
+    Route ids are returned by /api/clientgate/routes. A previously hardcoded
+    'en-2' was not necessarily valid for the Korean account's route.
     """
+    import aiohttp
+    from urllib.parse import quote
+    import random
+    from regional_auth import select_gateway_routes
+    target = upstream.ServerRegion.JP if region == "jp" else upstream.ServerRegion.EN
+    # EN and JP versions from upstream, KR version from the /kr/ client.
+    if region == "kr":
+        base = "https://mahjongsoul.game.yo-star.com/kr/"
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as s:
+                html = await upstream._text(s, base)
+                version = upstream._unity_version_from_html(html)
+        except (aiohttp.ClientError, TimeoutError, upstream.RemoteReplayError):
+            # The Korean client sometimes redirects to the shared EN build.
+            shared_version, _ = await upstream._bootstrap(target)
+            version = shared_version.removeprefix("web-").removeprefix("WebGL_2022-")
+    else:
+        version_with_prefix, _ = await upstream._bootstrap(target)
+        version = version_with_prefix.removeprefix("web-").removeprefix("WebGL_2022-")
+    # For Unity WebGL protocol, request version string must use WebGL_2022.
+    version_string = "WebGL_2022-" + version
+    authorities = ("jpgs.mahjongsoul.com", "jpgsbk.mahjongsoul.com") if region == "jp" \
+        else ("engs.mahjongsoul.com", "engsbk.mahjongsoul.com")
+    errors = []
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
+        for authority in authorities:
+            url = (f"https://{authority}/api/clientgate/routes?platform=Web"
+                   f"&version={quote(version)}&lang={region}&randv={random.randint(1, 999999999)}")
+            try:
+                payload = await upstream._json(s, url)
+                routes = payload.get("data", {}).get("routes", [])
+                valid = select_gateway_routes(routes, authority)
+                if valid:
+                    return version_string, valid
+            except (aiohttp.ClientError, TimeoutError, KeyError, ValueError,
+                    upstream.RemoteReplayError) as exc:
+                errors.append(type(exc).__name__)
+    raise upstream.RemoteReplayError(
+        "작혼 서버에서 해당 지역의 유효한 접속 경로 ID를 가져오지 못했습니다.")
+
+
+async def _fetch_by_region(reference, credentials, login_region: str):
+    """Obtain account-region token, route/version, then fetch replay."""
     from mahjong_url_parser.models import (
         RemoteReplayError, ReplayNotFoundError, ServerRegion
     )
     from mahjong_url_parser.sources import majsoul as upstream
-    from regional_auth import regional_client
+    from regional_auth import regional_client, route_context
 
     target = ServerRegion.JP if login_region == "jp" else ServerRegion.EN
     client = regional_client(login_region, credentials.yostar_device_id)
     session = await client.refresh(credentials.yostar_uid, credentials.yostar_token)
-    version, gateways = await upstream._bootstrap(target)
-    # Unity builds released since July 2026 require WebGL_2022, not web-
-    if version.startswith("web-"):
-        version = "WebGL_2022-" + version[4:]
+    version, routes = await _bootstrap_for_account(upstream, login_region)
     errors = []
-    for endpoint in gateways:
+    for endpoint, route_id in routes:
+        ctx = route_context.set(route_id)
         try:
             return await upstream._fetch_from_gateway(
                 endpoint, reference, credentials, version,
                 target_region=target, yostar_session=session,
             )
         except (RemoteReplayError, ReplayNotFoundError):
-            # Semantic OAuth failures cannot be fixed by changing a gateway.
-            raise
-        except Exception as err:
-            errors.append(type(err).__name__)
+            raise  # Wrong credentials: retrying a gateway does not fix it.
+        except Exception as exc:
+            errors.append(type(exc).__name__)
+        finally:
+            route_context.reset(ctx)
     raise RemoteReplayError('게임 게이트웨이에 연결하지 못했습니다: ' +
                             (errors[-1] if errors else 'NoGateway'))
 
@@ -205,7 +246,7 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
             return 502, {'code':'GAME_PROTOCOL_MISMATCH', 'stage':'oauth',
                          'error':'게임 서버가 로그인 프로토콜 또는 버전을 거부했습니다 (151). 이메일 재인증보다 서버 코드 업데이트가 필요합니다.'}
         return 502, {'code':'GAME_OAUTH_FAILED', 'stage':'oauth',
-                     'error':f'작혼 게임 서버 OAuth 인증 단계에서 거부했습니다 (코드 {code}). 계정 미연동으로 단정할 수 없습니다.'}
+                     'error':f'작혼 게임 서버 OAuth 단계에서 코드 {code}을 반환했습니다. 인증 지역·토큰 또는 프로토콜이 일치하지 않을 수 있습니다.'}
     if '게임 게이트웨이' in detail or '连接' in detail or '초기화' in detail:
         return 503, {'code':'GAME_GATEWAY_ERROR', 'stage':'connect',
                      'error':'작혼 게임 서버 연결 또는 연결 초기화 실패입니다. 네트워크/프로토콜 상태를 확인해야 합니다.'}
@@ -288,7 +329,7 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path == '/api/health':
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '2.4'})
+                                  'version': '2.5'})
             return
         if urlsplit(self.path).path == '/api/auth/status':
             _, s = self._get_session()

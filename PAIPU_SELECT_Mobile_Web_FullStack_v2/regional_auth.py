@@ -1,28 +1,59 @@
-"""Shared Yostar international SDK authentication + game handshake.
+"""Per-region Yostar SDK credentials and 2026 Unity connection handshake.
 
-Korean, English, and Japanese game regions use the SAME upstream JP SDK token
-issuer. The game gateway and oauth type still differ by region. v2.3 issued
-an invented KR-MAJONGSOUL SDK identity which caused OAuth2 error 110.
-Never log tokens, email or one-time codes.
+This module reuses upstream's authenticated HTTPS request implementation.
+It never logs or returns Yostar credentials. Network login requires live validation.
 """
 from __future__ import annotations
 import time
 import uuid
+from contextvars import ContextVar
 
-# The upstream converter documents ONE international Yostar account system.
-# IMPORTANT: "kr" / "en" select the game REPLAY gateway, not the issuer of
-# the Yostar SDK token. oauth2Auth rejects independently invented SDK PIDs.
-# Keep the original upstream YostarClient untouched, including its request
-# signing, JP-MJ project identifier, login payload and sdk version.
-VALID_REGIONS = frozenset({"kr", "jp", "en"})
+REGIONS = {
+    # Configured as in Soulless 0.3.2, not a shared JP-MJ issuer.
+    "kr": ("KR", "KR-MAJONGSOUL", "kr", "https://jp-sdk-api.yostarplat.com"),
+    "jp": ("JP", "JP-MAJONGSOUL", "jp", "https://jp-sdk-api.yostarplat.com"),
+    "en": ("US", "US-MAJONGSOUL", "en", "https://en-sdk-api.yostarplat.com"),
+}
 
 
 def regional_client(region: str, device_id: str = ""):
-    if region not in VALID_REGIONS:
+    if region not in REGIONS:
         raise ValueError("지원하지 않는 Yostar 인증 지역입니다.")
     from mahjong_url_parser.models import ServerRegion
-    from mahjong_url_parser.sources.yostar import YostarClient
-    return YostarClient(ServerRegion.JP, device_id=device_id)
+    from mahjong_url_parser.sources.yostar import YostarClient, YostarSession
+
+    identifier, pid, lang, sdk = REGIONS[region]
+
+    class RegionClient(YostarClient):
+        def __init__(self):
+            super().__init__(ServerRegion.JP if region != "en" else ServerRegion.EN,
+                             device_id=device_id)
+            self.base_url = sdk
+            self.region = ServerRegion.JP if region == "jp" else ServerRegion.EN
+
+        def _head(self, *, uid="", token=""):
+            head = super()._head(uid=uid, token=token)
+            head.update({"Region": identifier, "PID": pid, "Lang": lang,
+                         "Version": "4.16.2"})
+            return head
+
+        async def send_email_code(self, email):
+            # Mirror Soulless 0.3.2, without additional undocumented keys.
+            await self._post("yostar/send-code", {"Account": email.strip()})
+
+        async def exchange_email_code(self, email, code):
+            auth = await self._post("yostar/get-auth",
+                                    {"Account": email.strip(), "Code": code.strip()})
+            token = str(auth["Data"]["Token"])
+            login = await self._post("user/login", {
+                "Type": "yostar", "OpenID": email.strip(), "Token": token,
+                "Secret": "", "CheckAccountPlus": 0,
+            })
+            info = login["Data"]["UserInfo"]
+            return YostarSession(uid=str(info["ID"]), token=str(info["Token"]),
+                                 device_id=self.device_id)
+
+    return RegionClient()
 
 
 def _varint(n: int) -> bytes:
@@ -34,13 +65,20 @@ def _varint(n: int) -> bytes:
     return bytes(out)
 
 
-def connection_payload(region: str, *, stamp: int | None = None) -> bytes:
+route_context = ContextVar("paipu_gateway_route_id", default=None)
+
+
+def connection_payload(region: str, *, stamp: int | None = None,
+                       route_id: str | None = None) -> bytes:
     """Wire-encode .lq.Route.ReqRequestConnection fields 2,3,4,6.
 
     ms-api's generated 2025 proto lacks field 6; encoding it ourselves retains
     the required 'Web' platform field in the July 2026 Unity protocol.
     """
-    route = ("jp-2" if region == "jp" else "en-2").encode()
+    route_id = route_id or route_context.get()
+    if not isinstance(route_id, str) or not route_id or len(route_id) > 80:
+        raise RuntimeError("게임 서버에서 확인한 접속 경로 ID가 없습니다.")
+    route = route_id.encode("ascii")
     stamp = int(time.time()) if stamp is None else stamp
     return b"\x10\x01\x1a" + _varint(len(route)) + route + b"\x20" + _varint(stamp) + b"\x32\x03Web"
 
@@ -71,7 +109,8 @@ def patch_connection_handshake(upstream):
         # when the 2026 client sends "WebGL_2022-<version>".
         async def oauth_login(lobby, session, version, target_region):
             from ms import protocol_pb2 as pb
-            oauth_type = 21 if target_region.value == "jp" else 22
+            # Soulless 0.3.2 uses type 22 for current Yostar sessions.
+            oauth_type = 22
             req = pb.ReqOauth2Auth(
                 type=oauth_type, code=session.token, uid=session.uid,
                 client_version_string=version)
@@ -103,3 +142,32 @@ def patch_connection_handshake(upstream):
             return await lobby.oauth2_login(login)
         oauth_login._paipu_oauth_patch = True
         upstream._oauth_login = oauth_login
+
+
+def select_gateway_routes(routes, authority: str):
+    """Return verified (gateway URL, route id) tuples; reject injected hosts."""
+    import re
+    allowed = {"engs.mahjongsoul.com", "engsbk.mahjongsoul.com",
+               "jpgs.mahjongsoul.com", "jpgsbk.mahjongsoul.com"}
+    if authority not in allowed or not isinstance(routes, list):
+        return []
+    good = []
+    for item in routes:
+        if not isinstance(item, dict):
+            continue
+        route_id = item.get("id")
+        domain = str(item.get("domain") or "")
+        if not isinstance(route_id, str) or not route_id or len(route_id) > 80:
+            continue
+        if not domain or any(c in domain for c in "/?@#\\"):
+            continue
+        host = domain.split(":")[0].lower()
+        # Only official region-matching gateways; API data is untrusted.
+        if not re.fullmatch(r"[a-z0-9-]+\.mahjongsoul\.com", host) or host[:2] != authority[:2]:
+            continue
+        if item.get("ssl") is False or item.get("state") == "maintain":
+            continue
+        good.append((host, route_id, int(item.get("order") or 0)))
+    # Same host first, otherwise prefer official routes by priority.
+    good.sort(key=lambda v: (v[0] != authority, v[2]))
+    return [("wss://" + host + "/gateway", rid) for host, rid, _ in good]
