@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1222"><meta name="description" content="작혼 패보의 원하는 국만 골라 NAGA용 천봉 URL을 만드는 모바일 국 선택기">
+<title>패보 셀렉터 · 작혼 → NAGA</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="site">
+  <header class="topbar">
+    <div class="mark"><span class="mark-tile">東</span><span>PAIPU <b>SELECT</b></span></div>
+    <span class="top-pill"><span class="dot"></span> MOBILE WEB</span>
+  </header>
+  <main>
+    <section class="hero"><div class="eyebrow">MAHJONG SOUL · NAGA WORKFLOW</div><h1>필요한 국만 골라서,<br><em>NAGA로.</em></h1><p>작혼 패보를 불러오고 분석할 동국·남국을 선택하세요.<br class="desktop"> PC와 모바일에서 똑같이 사용할 수 있어요.</p></section>
+    <div class="steps"><div class="step active"><span>01</span>패보 불러오기</div><div class="dash"></div><div class="step"><span>02</span>분석할 국 선택</div><div class="dash"></div><div class="step"><span>03</span>NAGA로 전달</div></div>
+    <section class="panel" id="inputPanel">
+      <div class="panel-head"><div><span class="mini">STEP 01 / IMPORT</span><h2>패보 불러오기</h2></div><div class="indicator"> <span class="indicator-bubble"></span> 4인 마작 전용</div></div>
+      <div class="tabbar" role="tablist" aria-label="패보 입력 방법"><button id="urlTab" class="tab active" role="tab" aria-selected="true" type="button">작혼 패보 링크</button><button id="fileTab" class="tab" role="tab" aria-selected="false" type="button">JSON 파일</button></div>
+      <div id="urlMode" class="input-content"><label for="paipuInput" class="field-label">작혼 공유 URL</label><textarea id="paipuInput" rows="2" spellcheck="false" placeholder="https://game.mahjongsoul.com/?paipu=..." autocomplete="off"></textarea><p class="hint">패보 링크를 넣고 불러오세요. Yostar 인증은 최초 1회 또는 세션 만료 시 진행합니다.</p>
+      <div class="auth-box" id="authPanel">
+        <div class="auth-title"><span class="auth-circle">🔐</span><div><strong>Yostar 계정 인증</strong><small id="authStatus">작혼 패보를 읽기 위한 이메일 인증</small></div></div>
+        <div id="authLoggedOut">
+          <label for="emailInput" class="field-label">Yostar 로그인 이메일</label>
+          <div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"><button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button></div>
+          <div id="verifyRow" hidden><label for="codeInput" class="field-label">이메일로 받은 인증코드</label><div class="auth-fields"><input id="codeInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="인증코드"><button id="verifyBtn" type="button" class="btn outline">로그인</button></div></div>
+        </div>
+        <div id="authLoggedIn" hidden><span id="signedInEmail"></span><button id="logoutBtn" type="button" class="linkbtn">로그아웃</button></div>
+        <p class="small auth-info">Yostar 공식 인증 메일을 사용합니다. 비밀번호는 요구하지 않으며 로그인 세션은 서버 메모리에서 2시간 유지됩니다.</p>
+      </div>
+      <button type="button" id="convertUrlBtn" class="btn primary full">패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span></button>
+      <div id="backendInfo" class="notice" hidden><strong>연결 오류</strong><p id="backendDetail"></p></div>
+      </div>
+      <div id="fileMode" class="input-content" hidden><label id="dropzone" for="jsonInput" tabindex="0"><span class="upload-icon">↥</span><b>JSON 파일 선택</b><small>파일을 누르거나 이곳에 끌어 놓으세요</small><span class="filetypes">.json / .txt / 천봉 URL 목록</span></label><input id="jsonInput" type="file" accept=".json,.txt,.jsonl,application/json,text/plain" hidden><p class="hint">빅코치에서 받은 JSON 또는 천봉 형식의 JSON이 지원됩니다. 업로드한 파일은 외부로 전송되지 않습니다.</p></div>
+      <div id="errorBox" class="error" role="alert" hidden></div>
+    </section>
+    <section class="panel" id="roundPanel" hidden>
+      <div class="panel-head"><div><span class="mini">STEP 02 / PICK ROUNDS</span><h2>분석할 국 선택</h2></div><button type="button" id="resetBtn" class="linkbtn">다른 패보 ↗</button></div>
+      <div class="match-box"><div class="match-mark">牌</div><div><div class="match-sub">불러온 패보</div><div id="matchTitle" class="match-title">—</div><div id="matchNames" class="match-names"></div></div><div class="match-count"><strong id="totalRounds">0</strong><span>국</span></div></div>
+      <div class="pick-heading"><div><strong>대국 목록</strong><p>체크한 국만 NAGA용 링크에 포함됩니다.</p></div><span class="selectedbadge" id="selectedCount">0국 선택</span></div>
+      <div class="tools"><button id="allBtn" type="button" class="chip">전체</button><button id="eastBtn" type="button" class="chip">동국</button><button id="southBtn" type="button" class="chip">남국</button><button id="noneBtn" type="button" class="chip">해제</button></div>
+      <div id="roundList" class="round-grid"></div>
+      <label class="option-line"><input type="checkbox" id="anonymousCheck"><span>플레이어 닉네임 익명화</span></label>
+      <div class="summary-line"><span>선택한 국 <strong id="summaryCount">0</strong>개</span><span><strong id="costCount">0</strong>개 국의 URL 생성</span></div>
+      <button id="generateBtn" class="btn primary full" type="button" disabled>NAGA용 패보 생성 <span class="arrow-icon">→</span></button>
+    </section>
+    <section class="panel result-panel" id="resultPanel" hidden>
+      <div class="panel-head"><div><span class="mini">STEP 03 / NAGA READY</span><h2>NAGA 제출용 URL</h2></div><div class="success-dot">✓</div></div>
+      <div class="success-line" id="resultSummary"></div>
+      <label class="field-label" for="outputArea">국별 천봉 URL (한 줄당 한 국)</label><textarea id="outputArea" rows="5" spellcheck="false" readonly></textarea>
+      <div class="result-actions"><button id="copyBtn" class="btn primary" type="button">URL 전체 복사</button><a id="nagaBtn" class="btn outline" href="https://naga.dmv.nico/naga_report/order_form/" target="_blank" rel="noopener noreferrer">NAGA 제출창 열기 ↗</a></div>
+      <p class="hint">NAGA의 커스텀 패보 제출창에 복사한 내용을 붙여넣으세요. 최종 신청은 직접 진행하며 NP가 소모될 수 있습니다.</p><p id="convertWarnings" class="warning" hidden></p>
+      <div class="result-actions bottom"><button id="editBtn" class="linkbtn" type="button">← 국 다시 선택</button><button id="downloadBtn" class="linkbtn" type="button">TXT 저장 ↓</button></div>
+    </section>
+    <footer><p>PAIPU SELECT · 비공식 팬 제작 도구</p><p>작혼, 천봉, NAGA와 제휴하지 않았습니다. JSON 파일은 브라우저에서만 처리됩니다. 로그인 인증은 웹서버를 이용합니다.</p></footer>
+  </main>
+</div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script src="./converter.js"></script><script src="./app.js"></script>
+</body>
+</html>
