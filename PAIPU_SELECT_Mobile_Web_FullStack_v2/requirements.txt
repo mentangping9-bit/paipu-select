@@ -5,3 +5,4 @@ tensoul==0.1.8
 platformdirs>=4.3,<5
 keyring>=25,<26
 websockets>=13,<16
+UnityPy==1.25.4

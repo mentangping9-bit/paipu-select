@@ -177,10 +177,13 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
             'oauth_auth': '게임 서버가 Yostar 세션을 거부했습니다. 해당 계정의 인증 지역과 세션을 확인해야 합니다.',
             'oauth_check': '게임 서버 OAuth 세션 확인에 실패했습니다.',
             'oauth_login': '게임 계정 로그인에 실패했습니다.',
+            'client_version': '공식 작혼 리소스 배포에서 현재 클라이언트 버전을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
             'account_unbound': '이 Yostar 인증 지역에 연결된 작혼 계정이 없습니다. 공식 작혼에서 계정 연결을 확인해 주세요.',
             'conversion': '패보는 받았지만 천봉 JSON 변환 검증에 실패했습니다.',
             'fetch_record': '작혼 서버에서 해당 패보를 읽지 못했습니다.',
         }.get(stage, '작혼 서버 연결 또는 패보 응답 검증에 실패했습니다.')
+        if code == 151:
+            message = '게임 서버가 클라이언트 프로토콜 또는 버전을 거부했습니다. 서버 측 점검이 필요합니다.'
         return 502, {'code': 'GAME_' + stage.upper(), 'stage': stage,
                      'server_code': code, 'error': message + (f' (코드 {code})' if code else '')}
     detail = str(error)
@@ -280,12 +283,14 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if urlsplit(self.path).path == '/api/health':
+            from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
                                   'version': '3.0.0-dev',
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
-                                  'auth_protocol': 'yostar22-unity-resource-package',
+                                  'resolved_versions': version_status(),
+                                  'auth_protocol': 'yostar-21-22-23-live-resource',
                                   'converter_installed': package_ready()})
             return
         if urlsplit(self.path).path == '/api/auth/status':

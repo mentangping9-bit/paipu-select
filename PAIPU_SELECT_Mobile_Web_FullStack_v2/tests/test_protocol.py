@@ -17,8 +17,8 @@ def test_connection_matches_published_capture():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('region,product', [('kr','4.0.12'),('jp','4.0.12'),('en','4.0.10')])
-async def test_yostar_oauth_uses_session_type_and_separate_versions(region, product):
+@pytest.mark.parametrize('region,product,resource,oauth_type', [('kr','4.0.12','0.16.266',23),('jp','4.0.12','0.16.267',21),('en','4.0.10','0.16.266',22)])
+async def test_yostar_oauth_uses_client_enum_and_separate_versions(region, product, resource, oauth_type):
     lobby=SimpleNamespace(
         oauth2_auth=AsyncMock(return_value=pb.ResOauth2Auth(access_token='oauth-token')),
         oauth2_check=AsyncMock(return_value=pb.ResOauth2Check(has_account=True)),
@@ -27,12 +27,12 @@ async def test_yostar_oauth_uses_session_type_and_separate_versions(region, prod
     await login(lobby, SimpleNamespace(uid='sdk-id',token='sdk-session'), profile_for(region))
     auth=lobby.oauth2_auth.call_args.args[0]
     request=lobby.oauth2_login.call_args.args[0]
-    assert auth.type==request.type==22
+    assert auth.type==request.type==oauth_type
     assert auth.code=='sdk-session'
     assert auth.uid=='sdk-id'
-    assert auth.client_version_string=='WebGL_2022-0.16.229'
+    assert auth.client_version_string=='WebGL_2022-'+resource
     assert request.access_token=='oauth-token'
-    assert request.client_version.resource=='0.16.229'
+    assert request.client_version.resource==resource
     assert request.client_version.package==product
     assert request.tag==region
     assert request.reconnect is False

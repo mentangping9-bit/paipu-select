@@ -47,7 +47,7 @@ class Profile:
 def profile_for(region: str) -> Profile:
     if region not in VERSIONS:
         raise ValueError("지원하지 않는 로그인 지역입니다.")
-    return Profile(region, **VERSIONS[region])
+    return Profile(region, product=VERSIONS[region]['product'], resource=VERSIONS[region]['resource'])
 
 
 def select_gateway_routes(routes, authority):
@@ -119,19 +119,22 @@ async def rpc(stage, call):
 
 
 async def login(lobby, session, profile):
+    # GameUtility.ELoginSocialType + YostarWebGLSDK.Login in the game client.
+    # Soulless 0.3.2 hardcodes 22 and does not implement the KR value 23.
+    oauth_type = {'jp': 21, 'en': 22, 'kr': 23}[profile.region]
     auth = await rpc("oauth_auth", lobby.oauth2_auth(pb.ReqOauth2Auth(
-        type=22, code=session.token, uid=session.uid,
+        type=oauth_type, code=session.token, uid=session.uid,
         client_version_string=profile.version_string,
     )))
     if not auth.access_token:
         raise GameError("oauth_auth")
     check = await rpc("oauth_check", lobby.oauth2_check(pb.ReqOauth2Check(
-        type=22, access_token=auth.access_token,
+        type=oauth_type, access_token=auth.access_token,
     )))
     if not check.has_account:
         raise GameError("account_unbound")
     request = pb.ReqOauth2Login(
-        type=22, access_token=auth.access_token, reconnect=False,
+        type=oauth_type, access_token=auth.access_token, reconnect=False,
         random_key=str(uuid.uuid4()), client_version_string=profile.version_string,
         tag=profile.region,
     )
@@ -154,6 +157,8 @@ async def connect(channel, profile, route_id):
     response.ParseFromString(raw)
     if response.error.code:
         raise GameError("connection", response.error.code)
+    if response.result != 1:
+        raise GameError('connection_result', response.result)
     return response
 
 
@@ -181,7 +186,12 @@ async def download_record(url):
 
 
 async def fetch_record(replay_id, session, region):
-    profile = profile_for(region)
+    from version_resolver import resolve
+    try:
+        resolved = await resolve(region)
+    except Exception as exc:
+        raise GameError('client_version') from exc
+    profile = Profile(region, product=resolved['product'], resource=resolved['resource'])
     routes = await bootstrap(profile)
     for index, (endpoint, route_id) in enumerate(routes):
         channel = MSRPCChannel(endpoint)

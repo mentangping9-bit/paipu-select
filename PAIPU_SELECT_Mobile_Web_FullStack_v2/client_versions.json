@@ -1,9 +1,22 @@
 {
-  "source": "https://hex.pm/packages/soulless_proto/0.11.612",
+  "source": "Official Unity GameLoader settings and live resource distribution, checked 2026-10-19",
   "checked_at": "2026-10-19",
   "regions": {
-    "kr": {"product": "4.0.12", "resource": "0.16.229"},
-    "jp": {"product": "4.0.12", "resource": "0.16.229"},
-    "en": {"product": "4.0.10", "resource": "0.16.229"}
+    "kr": {
+      "product": "4.0.12",
+      "resource": "0.16.266",
+      "bundle_hash": "28968f9ea893df2a59c555e9fed9b7662f412d37",
+      "settings_url": "https://appstatic.mahjongsoul.com/v4/kr/clientbundlesettings/WebGL-kr-release-4.0.12-s6vhcy.json"
+    },
+    "jp": {
+      "product": "4.0.12",
+      "resource": "0.16.267",
+      "bundle_hash": "9d063fe26e9ea592263da855da5342f3155e1c43",
+      "settings_url": "https://appstatic.mahjongsoul.com/v4/jp/clientbundlesettings/WebGL-jp-release-4.0.12-4h1sf2.json"
+    },
+    "en": {
+      "product": "4.0.10",
+      "resource": "0.16.266"
+    }
   }
 }

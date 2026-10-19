@@ -2,7 +2,10 @@
 
 Status: implementation corrections and offline regressions verified; live game
 login and the two supplied Korean/JP replay downloads are still unverified.
-Code 110 has not yet been demonstrated to be resolved.
+The first live-account test reached oauth_auth and returned code 151 with resource
+version 0.16.229. A credential-free A/B control reproduced 151 with 0.16.229
+and returned the expected invalid-credential code 110 with 0.16.266.
+Successful live account authentication remains unverified after this correction.
 
 ## Observed deployment
 
@@ -14,8 +17,13 @@ Code 110 has not yet been demonstrated to be resolved.
 
 ## Function-level comparison
 
-Compared with Soulless commit 933a9dd34b8041123007c5b9be70bd95826e70cf
-(v0.3.2) and its soulless_proto 0.11.612 metadata.
+Initial comparison used Soulless commit 933a9dd34b8041123007c5b9be70bd95826e70cf
+(v0.3.2) and its soulless_proto 0.11.612 metadata. These contain a stale
+resource version and an EN-only OAuth type hardcode. The final implementation
+is grounded in the actual game client dump czen/mjs_src commit
+b29f2ed950d51e428b7b884ee2dbc2e8501ecaa3 (2026-10-12), especially
+GameUtility.ELoginSocialType, Basic.Enum, YostarWebGLSDK.Login and
+UI_Entrance.LoginBySocioCode, plus live official resource assets.
 
 | Stage | Previous executing code | Current implementation | Reference |
 |---|---|---|---|
@@ -25,9 +33,9 @@ Compared with Soulless commit 933a9dd34b8041123007c5b9be70bd95826e70cf
 | WS endpoint | host/gateway | host root for international servers | Endpoint.lobby_socket |
 | Route query | productVersion read from HTML | separately named product version | Route.resolve_id |
 | requestConnection | type/route/time/platform | type=1, discovered route, time, platform=Web, bounded response wait | Implementation.Lobby.request_connection |
-| OAuth auth/check/login | JP=21, EN/KR=22 | Yostar session=22 for every international region | Implementation.Lobby.login_type_for_login_method |
-| client_version_string | WebGL_2022-4.0.x | WebGL_2022-0.16.229 | Util.client_version_string; soulless_proto metadata |
-| client_version | resource=4.0.x, package missing | resource=0.16.229; package=4.0.12 KR/JP, 4.0.10 EN | Util.client_version_info |
+| OAuth auth/check/login | JP=21, EN/KR=22 | KR=23, JP=21, EN=22 | Actual client ELoginSocialType + SDK selection |
+| client_version_string | WebGL_2022-4.0.x | WebGL_2022-<live resource version> | GameUtility.GetClientVersionString; official resource version asset |
+| client_version | resource=4.0.x, package missing | resource=live KR 0.16.266 / JP 0.16.267; separate package | Util.client_version_info |
 | login tag/reconnect | majsoul-hk-client / true | account region / false | Implementation.Lobby.oauth2_login |
 
 These are concrete deviations from the reference protocol, not proof that any
@@ -75,3 +83,28 @@ form validation check. Generated URLs alone are not evidence of NAGA acceptance.
 - https://hex.pm/packages/soulless_proto/0.11.612 (version metadata)
 - https://github.com/Longhorn-Riichi/InjusticeJudge/issues/37 (public requestConnection capture)
 - https://github.com/LekangZou/Mahjong-Replay-Converter (MIT helper subset bundled with license)
+
+## Live version evidence and update behavior
+
+The official HTML identifies the Unity data file. Its GameLoader MonoBehaviour
+contains the clientbundlesettings URL. That JSON names warehouseSettings, whose
+bundlePath names the WebGL/ASTC resource distribution. The live manifest maps
+MyAssets/docs_version/version.json to a small bundle containing the version.
+
+KR: product 4.0.12, resource 0.16.266, live hash
+28968f9ea893df2a59c555e9fed9b7662f412d37.
+JP: product 4.0.12, resource 0.16.267, live hash
+9d063fe26e9ea592263da855da5342f3155e1c43.
+These were read directly from the official distribution on 2026-10-19.
+
+version_resolver.py checks the official distribution before authentication and
+caches it for five minutes. An unchanged verified hash can use the recorded
+version. A changed hash triggers extraction of the new version asset. A changed
+product build triggers re-extraction of its GameLoader settings URL. Only fixed
+official hosts are allowed; user replay URLs cannot direct these requests.
+
+Actual production UI actions confirmed east/south/all/none selection, distinct
+honba labels, zero-selection disabling and one-round-per-URL headers using an
+anonymous test fixture. Cloud Browser's virtual clipboard cannot read the
+page clipboard, and its available APIs do not expose mobile viewport emulation.
+Clipboard delivery, NAGA acceptance and mobile rendering remain unverified.

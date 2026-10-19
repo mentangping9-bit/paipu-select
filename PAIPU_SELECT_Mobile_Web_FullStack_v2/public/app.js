@@ -29,7 +29,15 @@ try { value=normalizedUrl($('paipuInput').value); }
 catch(e){alertError(e.message);return;}
 // Keep the original pasted caption in the input so it is not lost.
  busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent='작혼 패보를 가져오는 중…';try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),110000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===401){$('authPanel').scrollIntoView({behavior:'smooth',block:'center'});toast('먼저 Yostar 이메일 인증을 완료하세요.');}throw Error(data.error||`서버 오류 HTTP ${response.status}`);}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?'110초 동안 서버 응답이 없습니다.':e.message;if(e instanceof TypeError){$('backendDetail').textContent='변환 서버에 연결할 수 없습니다.';$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;btn.disabled=false;btn.innerHTML='패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span>';}}
-async function copyOutput(){const text=$('outputArea').value;try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');}catch{const el=$('outputArea');el.focus();el.select();try{document.execCommand('copy');toast('URL을 복사했어요.');}catch{toast('복사할 URL을 길게 눌러 선택해 주세요.');}}}
+async function copyOutput(){
+ const text=$('outputArea').value;
+ try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');return true;}
+ catch{
+  const el=$('outputArea');el.focus();el.select();el.setSelectionRange(0,text.length);
+  try{if(document.execCommand('copy')){toast('URL을 복사했어요.');return true;}}catch{}
+  toast('자동 복사가 허용되지 않았습니다. 선택된 URL을 직접 복사해 주세요.');return false;
+ }
+}
 function saveJSON(){
  const selected=parser.jsonForSelection(rounds,chosen,$('anonymousCheck').checked);
  const blob=new Blob([JSON.stringify(selected.length===1?selected[0]:selected,null,2)],{type:'application/json;charset=utf-8'});
@@ -38,8 +46,9 @@ function saveJSON(){
 function openNaga(){
  // Open during the tap event, before awaiting clipboard permission on iOS.
  // Never access NAGA cookies or call its analysis/charge API.
+ const copied=copyOutput(); // Request clipboard access while this tab still has focus.
  window.open('https://naga.dmv.nico/naga_report/order_form/','_blank','noopener,noreferrer');
- copyOutput();
+ return copied;
 }
 function saveOutput(){const url=URL.createObjectURL(new Blob([$('outputArea').value],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='NAGA_selected_rounds.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('nagaBtn').onclick=openNaga;
