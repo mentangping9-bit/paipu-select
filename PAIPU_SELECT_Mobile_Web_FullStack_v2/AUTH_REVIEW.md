@@ -153,3 +153,26 @@ its available APIs do not expose mobile viewport emulation. Clipboard delivery
 to NAGA, authenticated server acceptance and mobile-device rendering remain
 unverified. The deployed UI provides manual URL selection and TXT/JSON download
 fallbacks and never initiates a paid order automatically.
+
+## Short JSON win-score restoration — 2026-10-19
+
+BigCoach exports may retain complete payment deltas but abbreviate winner detail
+to [winner,payer]. Previously those wins were replaced by ["不明"]. The browser
+now retains the original payment vectors and creates a score-only detail from
+losers' payments, subtracting 300 per honba for ron or 100 per payer for tsumo.
+Winner gains include deposits and are displayed separately from base payments.
+No fu, han or yaku are inferred. Complete original details remain intact.
+
+Ambiguous splits (including possible liability), missing deltas and ambiguous
+multi-ron honba allocation remain unresolved rather than gaining invented data.
+A previously exported ["不明"] record has already lost its winner and payment
+metadata and cannot be repaired; the original JSON must be imported again.
+
+The user-supplied 12-round JSON was reproduced in production before the patch:
+all nine wins were shortened. Local patched conversion recovered all nine win
+scores and retained all three draws and all tile actions/payment deltas. The
+official NAGA public URL and TenhouEdit validators passed all twelve outputs.
+The private upload is not committed to this public repository. Tests use generic
+settlement examples to cover deposits, honba, original detail preservation and
+ambiguous payment rejection. Authenticated NAGA server acceptance is still not
+claimed by these client-side checks.

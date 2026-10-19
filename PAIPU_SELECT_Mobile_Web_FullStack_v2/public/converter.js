@@ -80,8 +80,12 @@
         const label = `${WINDS[Math.floor(no / 4)]}${no % 4 + 1}국`;
         const outcome = round[16]?.[0] || '';
         const meta = entry.meta;
+        const repaired = restoreWinScores(round);
+        const incompleteWin = isIncompleteWin(repaired.round);
         all.push({ id: all.length, label, honba, result: String(outcome),
-          url: buildUrl(meta, round), roundNo: no, incompleteWin: isIncompleteWin(round) });
+          url: buildUrl(meta, repaired.round), roundNo: no, incompleteWin,
+          recoveredWin: repaired.recovered,
+          scoreSummary: winSummary(repaired.round, meta.name) });
       }
     }
     return all;
@@ -103,10 +107,8 @@
   function rewriteYaku(round) {
     const r = JSON.parse(JSON.stringify(round));
     const result = r[16];
-    // BigCoach exports many wins with only [winner, payer] and no score/yaku data.
-    // Unlike a legitimate Tenhou win result, [2,2] is not a valid scoring detail.
-    // Preserve every draw/discard/meld but mark the terminal result unknown,
-    // following the user's working tenhou.net/5 sample. Never invent yaku/points.
+    // Only genuinely unrecoverable win details use the unknown ending. Short
+    // BigCoach details are repaired from their recorded payments before here.
     if (isIncompleteWin(r)) {
       r[16] = ['不明'];
       return r;
@@ -133,6 +135,77 @@
     }
     return r;
   }
+  function paymentScore(round, changes, details) {
+    // The export records settlement payments separately from riichi deposits.
+    // Derive points from losers, never the winner's gain (which includes sticks).
+    // Do not infer fu, han, yaku, or liability from a payment amount.
+    if (!Array.isArray(changes) || changes.length !== 4 ||
+        !changes.every(v => Number.isSafeInteger(v) && v % 100 === 0) ||
+        !Array.isArray(details) || details.length < 2) return null;
+    const [winner, payer] = details;
+    if (![winner, payer].every(v => Number.isInteger(v) && v >= 0 && v < 4) || changes[winner] <= 0) return null;
+    if (details.length >= 4 && details[2] !== winner) return null;
+    const honba = round[0][1], dealer = round[0][0] % 4;
+    if (!Number.isInteger(honba) || honba < 0) return null;
+    const deposit = changes.reduce((a,b) => a+b, 0);
+    if (deposit < 0 || deposit % 1000 !== 0) return null;
+    if (winner !== payer) {
+      if (changes[payer] >= 0 || changes.some((v,i) => i !== winner && i !== payer && v !== 0)) return null;
+      const points = -changes[payer] - honba * 300;
+      if (points <= 0 || points % 100 !== 0) return null;
+      return {text: `${points}点`, display: `론 ${points.toLocaleString('ko-KR')}점`};
+    }
+    const payers = [0,1,2,3].filter(i => i !== winner);
+    if (payers.some(i => changes[i] >= 0)) return null;
+    const payments = payers.map(i => -changes[i] - honba * 100);
+    if (payments.some(v => v <= 0 || v % 100 !== 0)) return null;
+    if (winner === dealer) {
+      if (!payments.every(v => v === payments[0])) return null;
+      return {text: `${payments[0]}点∀`, display: `쯔모 ${payments[0].toLocaleString('ko-KR')}점씩`};
+    }
+    const child = payers.filter(i => i !== dealer).map(i => -changes[i] - honba * 100);
+    const parent = -changes[dealer] - honba * 100;
+    // Standard rounded nondealer payments differ by at most 100 from 2:1.
+    // Nonstandard splits/pao need explicit original detail, not a guess.
+    if (child[0] !== child[1] || ![2*child[0], 2*child[0]-100].includes(parent)) return null;
+    return {text: `${child[0]}-${parent}点`, display: `쯔모 ${child[0].toLocaleString('ko-KR')}/${parent.toLocaleString('ko-KR')}점`};
+  }
+  function restoreWinScores(round) {
+    const r = JSON.parse(JSON.stringify(round));
+    const result = r[16];
+    let recovered = false;
+    if (result?.[0] !== '和了' || result.length < 3 || result.length % 2 !== 1) return {round:r,recovered};
+    // Multiple ron with honba may allocate the honba to only one winner. A
+    // shortened result does not say which convention was used.
+    if (result.length > 3 && r[0][1] !== 0) return {round:r,recovered};
+    for (let i = 2; i < result.length; i += 2) {
+      const detail = result[i];
+      // Repair only the documented [winner,payer] export. Existing complete
+      // score/yaku details and unrecognized variants are never overwritten.
+      if (!Array.isArray(detail) || detail.length !== 2) continue;
+      const score = paymentScore(r,result[i-1],detail);
+      if (!score) continue;
+      result[i] = [detail[0],detail[1],detail[0],score.text];
+      recovered = true;
+    }
+    return {round:r,recovered};
+  }
+  function winSummary(round, names) {
+    const result = round[16];
+    if (result?.[0] !== '和了') return '';
+    const parts = [];
+    for (let i = 2; i < result.length; i += 2) {
+      const detail = result[i], changes = result[i-1];
+      if (!Array.isArray(detail) || detail.length < 4 || !Array.isArray(changes)) continue;
+      const winner = detail[0];
+      const score = paymentScore(round,changes,detail);
+      const display = score?.display || String(detail[3]).replaceAll('点','점').replace('∀','씩');
+      const name = Array.isArray(names) ? String(names[winner] || `${winner+1}번`) : `${winner+1}번`;
+      const gain = Number.isSafeInteger(changes[winner]) ? ` · 수입 +${changes[winner].toLocaleString('ko-KR')}점` : '';
+      parts.push(`${name} ${display}${gain}`);
+    }
+    return parts.join(' / ');
+  }
   function isIncompleteWin(round) {
     const outcome = round[16];
     if (!Array.isArray(outcome) || outcome[0] !== '和了') return false;
@@ -143,7 +216,7 @@
           !Number.isInteger(detail[0]) || !Number.isInteger(detail[1]) ||
           !Number.isInteger(detail[2]) || typeof detail[3] !== 'string') return true;
     }
-    return outcome.length < 3;
+    return outcome.length < 3 || outcome.length % 2 !== 1;
   }
   function buildUrl(meta, round) {
     const names = Array.isArray(meta.name) && meta.name.length === 4
