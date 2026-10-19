@@ -150,7 +150,10 @@
       ? meta.name.map(normalizeName) : ['Aさん','Bさん','Cさん','Dさん'];
     const title = Array.isArray(meta.title) ? meta.title : ['四人南喰赤', ''];
     const src = isObj(meta.rule) ? meta.rule : {};
-    const rule = {disp: String(src.disp || '四南喰赤'), aka: src.aka === 0 ? 0 : 1};
+    // Preserve per-suit red-five counts from real converters (aka51/52/53).
+    // Replacing these with aka=1 changes red-free games into red-five games.
+    const rule = {...src, disp: String(src.disp || '四南喰赤')};
+    if (!['aka','aka51','aka52','aka53'].some(key => Object.hasOwn(src,key))) rule.aka=1;
     const data = { title, name: names, rule, log: [rewriteYaku(round)] };
     // Match the user's known-working format literally: /5/#json=%7B%22...
     return EDITOR + encodeURIComponent(JSON.stringify(data));
@@ -164,5 +167,9 @@
       return EDITOR + encodeURIComponent(JSON.stringify(obj));
     }).join('\n');
   }
-  globalThis.NagaParser = Object.freeze({parseText, urlsForSelection, isIncompleteWin, parseUrlJSON, collect, MAX_BYTES});
+  function jsonForSelection(rounds, selectedIds, anonymous) {
+    const text = urlsForSelection(rounds, selectedIds, anonymous);
+    return text ? text.split('\n').map(parseUrlJSON) : [];
+  }
+  globalThis.NagaParser = Object.freeze({parseText, urlsForSelection, jsonForSelection, isIncompleteWin, parseUrlJSON, collect, MAX_BYTES});
 })();

@@ -1,0 +1,9 @@
+{
+  "source": "https://hex.pm/packages/soulless_proto/0.11.612",
+  "checked_at": "2026-10-19",
+  "regions": {
+    "kr": {"product": "4.0.12", "resource": "0.16.229"},
+    "jp": {"product": "4.0.12", "resource": "0.16.229"},
+    "en": {"product": "4.0.10", "resource": "0.16.229"}
+  }
+}

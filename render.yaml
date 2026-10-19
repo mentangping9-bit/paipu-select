@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: paipu-select
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && pip install --no-deps 'git+https://github.com/LekangZou/Mahjong-Replay-Converter.git@61f5ae1f36ee7419173cccb03fe8afdf81d57e28'
+    startCommand: python server.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      - key: PUBLIC_HTTPS
+        value: '1'

@@ -9,7 +9,7 @@ Run: python server.py
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -17,12 +17,20 @@ import os
 from pathlib import Path
 import re
 import secrets
+import subprocess
+import sys
 import threading
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
+try:
+    BUILD = os.getenv('RENDER_GIT_COMMIT') or subprocess.check_output(
+        ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+except (OSError, subprocess.SubprocessError):
+    BUILD = 'local'
+gateway_probe = {'status': 'not_run', 'authenticated': False}
 HOSTS = {"game.mahjongsoul.com", "mahjongsoul.game.yo-star.com", "mahjongsoul.com", "www.mahjongsoul.com", "game.maj-soul.com", "game.maj-soul.net"}
 PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,160}$")
 SHARE_URL = re.compile(r"https://[^\s\xa0<>\"'`]+", re.IGNORECASE)
@@ -44,6 +52,8 @@ class Session:
     region: str = "kr"
     code_sent: float = 0
     fresh_token_at: float = 0
+    game_verified: bool = False
+    operation: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 sessions: dict[str, Session] = {}
 auth_attempts: dict[str, list[float]] = {}
@@ -93,16 +103,10 @@ def check_tenhou(v):
 
 def _converter():
     """Lazy import so the UI + JSON-file flow can be tested offline."""
-    from mahjong_url_parser.models import MahjongSoulCredentials, ServerRegion, ReplayNotFoundError
-    from mahjong_url_parser.sources.majsoul import (
-        send_yostar_email_code, authenticate_yostar, fetch_majsoul
-    )
-    from mahjong_url_parser.urls import parse_replay_url
-    from regional_auth import patch_connection_handshake
-    from mahjong_url_parser.sources import majsoul as upstream
-    patch_connection_handshake(upstream)
-    return (MahjongSoulCredentials, ServerRegion, ReplayNotFoundError,
-            send_yostar_email_code, authenticate_yostar, fetch_majsoul, parse_replay_url)
+    from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
+    from majsoul_client import fetch_record
+    from tensoul.downloader import MajsoulPaipuDownloader
+    return parse_replay_url, fetch_record, MajsoulPaipuDownloader
 
 
 def package_ready() -> bool:
@@ -137,115 +141,48 @@ def _throttle(key: str, limit: int = 4, duration: int = 900):
         marks.append(now)
 
 
-async def _bootstrap_for_account(upstream, region: str):
-    """Use the regional web version AND route id; KR is not EN language.
-
-    Route ids are returned by /api/clientgate/routes. A previously hardcoded
-    'en-2' was not necessarily valid for the Korean account's route.
-    """
-    import aiohttp
-    from urllib.parse import quote
-    import random
-    from regional_auth import select_gateway_routes
-    target = upstream.ServerRegion.JP if region == "jp" else upstream.ServerRegion.EN
-    # EN and JP versions from upstream, KR version from the /kr/ client.
-    if region == "kr":
-        base = "https://mahjongsoul.game.yo-star.com/kr/"
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=25)) as s:
-                html = await upstream._text(s, base)
-                version = upstream._unity_version_from_html(html)
-        except (aiohttp.ClientError, TimeoutError, upstream.RemoteReplayError):
-            # The Korean client sometimes redirects to the shared EN build.
-            shared_version, _ = await upstream._bootstrap(target)
-            version = shared_version.removeprefix("web-").removeprefix("WebGL_2022-")
-    else:
-        version_with_prefix, _ = await upstream._bootstrap(target)
-        version = version_with_prefix.removeprefix("web-").removeprefix("WebGL_2022-")
-    # For Unity WebGL protocol, request version string must use WebGL_2022.
-    version_string = "WebGL_2022-" + version
-    authorities = ("jpgs.mahjongsoul.com", "jpgsbk.mahjongsoul.com") if region == "jp" \
-        else ("engs.mahjongsoul.com", "engsbk.mahjongsoul.com")
-    errors = []
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
-        for authority in authorities:
-            url = (f"https://{authority}/api/clientgate/routes?platform=Web"
-                   f"&version={quote(version)}&lang={region}&randv={random.randint(1, 999999999)}")
-            try:
-                payload = await upstream._json(s, url)
-                routes = payload.get("data", {}).get("routes", [])
-                valid = select_gateway_routes(routes, authority)
-                if valid:
-                    return version_string, valid
-            except (aiohttp.ClientError, TimeoutError, KeyError, ValueError,
-                    upstream.RemoteReplayError) as exc:
-                errors.append(type(exc).__name__)
-    raise upstream.RemoteReplayError(
-        "작혼 서버에서 해당 지역의 유효한 접속 경로 ID를 가져오지 못했습니다.")
-
-
-async def _fetch_by_region(reference, credentials, login_region: str, *, use_fresh_session: bool = False):
-    """Use a newly issued login session directly; refresh only saved sessions.
-
-    Soulless separates the new-device Yostar login path from the saved-session
-    quick-login path. A fresh login is already an authenticated SDK session.
-    """
-    from mahjong_url_parser.models import (
-        RemoteReplayError, ReplayNotFoundError, ServerRegion
-    )
-    from mahjong_url_parser.sources import majsoul as upstream
-    from regional_auth import regional_client, route_context
-
-    target = ServerRegion.JP if login_region == "jp" else ServerRegion.EN
-    if use_fresh_session:
-        from mahjong_url_parser.sources.yostar import YostarSession
-        session = YostarSession(uid=credentials.yostar_uid,
-                                token=credentials.yostar_token,
-                                device_id=credentials.yostar_device_id)
-    else:
-        client = regional_client(login_region, credentials.yostar_device_id)
-        session = await client.refresh(credentials.yostar_uid, credentials.yostar_token)
-    version, routes = await _bootstrap_for_account(upstream, login_region)
-    errors = []
-    for endpoint, route_id in routes:
-        ctx = route_context.set(route_id)
-        try:
-            return await upstream._fetch_from_gateway(
-                endpoint, reference, credentials, version,
-                target_region=target, yostar_session=session,
-            )
-        except (RemoteReplayError, ReplayNotFoundError):
-            raise  # Wrong credentials: retrying a gateway does not fix it.
-        except Exception as exc:
-            errors.append(type(exc).__name__)
-        finally:
-            route_context.reset(ctx)
-    raise RemoteReplayError('게임 게이트웨이에 연결하지 못했습니다: ' +
-                            (errors[-1] if errors else 'NoGateway'))
-
-
 def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
-    (Credentials, Region, _, _, _, _, parse) = _converter()
-    reference = parse(extract_share_url(text))
-    credentials = Credentials(region=Region.JP, email=session.email,
-                              yostar_uid=session.uid, yostar_token=session.token,
-                              yostar_device_id=session.device_id)
-    use_fresh = bool(session.fresh_token_at and
-                     0 <= time.monotonic() - session.fresh_token_at < 300)
-    result = asyncio.run(asyncio.wait_for(
-        _fetch_by_region(reference, credentials, session.region,
-                         use_fresh_session=use_fresh), timeout=100))
-    if result.yostar_session:
+    _converter()
+    from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
+    from paipu_vendor.mahjong_url_parser.sources.yostar import YostarSession
+    from regional_auth import regional_client
+    from majsoul_client import fetch_record
+    reference = parse_replay_url(extract_share_url(text))
+    if not session.operation.acquire(blocking=False):
+        raise ValueError("같은 계정의 패보를 조회하고 있습니다. 완료 후 다시 시도해 주세요.")
+    async def work():
+        fresh = bool(session.fresh_token_at and time.monotonic() - session.fresh_token_at < 300)
+        if fresh:
+            sdk = YostarSession(session.uid, session.token, session.device_id)
+        else:
+            sdk = await regional_client(session.region, session.device_id).refresh(session.uid, session.token)
+        # Persist a rotated SDK token even when game authentication fails.
         with lock:
-            session.uid = result.yostar_session.uid
-            session.token = result.yostar_session.token
-            session.device_id = result.yostar_session.device_id
-    with lock:
-        session.fresh_token_at = 0
-    return check_tenhou(result.payload)
+            session.uid, session.token, session.device_id = sdk.uid, sdk.token, sdk.device_id
+            session.fresh_token_at = 0
+        payload = await fetch_record(reference.replay_id, sdk, session.region)
+        with lock:
+            session.game_verified = True
+        return check_tenhou(payload)
+    try:
+        return asyncio.run(asyncio.wait_for(work(), timeout=100))
+    finally:
+        session.operation.release()
 
 
 def public_fetch_error(error: Exception) -> tuple[int, dict]:
+    if type(error).__name__ == 'GameError':
+        stage, code = error.stage, error.code
+        message = {
+            'oauth_auth': '게임 서버가 Yostar 세션을 거부했습니다. 해당 계정의 인증 지역과 세션을 확인해야 합니다.',
+            'oauth_check': '게임 서버 OAuth 세션 확인에 실패했습니다.',
+            'oauth_login': '게임 계정 로그인에 실패했습니다.',
+            'account_unbound': '이 Yostar 인증 지역에 연결된 작혼 계정이 없습니다. 공식 작혼에서 계정 연결을 확인해 주세요.',
+            'conversion': '패보는 받았지만 천봉 JSON 변환 검증에 실패했습니다.',
+            'fetch_record': '작혼 서버에서 해당 패보를 읽지 못했습니다.',
+        }.get(stage, '작혼 서버 연결 또는 패보 응답 검증에 실패했습니다.')
+        return 502, {'code': 'GAME_' + stage.upper(), 'stage': stage,
+                     'server_code': code, 'error': message + (f' (코드 {code})' if code else '')}
     detail = str(error)
     if type(error).__name__ == 'ReplayNotFoundError':
         return 404, {'code':'REPLAY_NOT_FOUND',
@@ -334,7 +271,7 @@ class Handler(SimpleHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
         except ValueError as exc:
             raise ValueError('잘못된 요청 길이입니다.') from exc
-        if not 0 < length <= 8000:
+        if not 0 < length <= 16384:
             raise ValueError('요청이 너무 큽니다.')
         value = json.loads(self.rfile.read(length))
         if not isinstance(value, dict):
@@ -345,13 +282,18 @@ class Handler(SimpleHTTPRequestHandler):
         if urlsplit(self.path).path == '/api/health':
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '2.7'})
+                                  'version': '3.0.0-dev',
+                                  'build_commit': BUILD,
+                                  'gateway_probe': gateway_probe,
+                                  'auth_protocol': 'yostar22-unity-resource-package',
+                                  'converter_installed': package_ready()})
             return
         if urlsplit(self.path).path == '/api/auth/status':
             _, s = self._get_session()
             self.json_reply(200, {'authenticated': bool(s and s.uid and s.token),
                                   'email': s.email if s and s.uid else '',
-                                  'region': s.region if s and s.uid else 'kr'})
+                                  'region': s.region if s and s.uid else 'kr',
+                                  'game_authenticated': bool(s and s.game_verified)})
             return
         self.path = urlsplit(self.path).path
         if self.path == '/':
@@ -388,6 +330,7 @@ class Handler(SimpleHTTPRequestHandler):
                     s.email, s.device_id, s.region, s.code_sent = email, device, region, time.monotonic()
                     s.uid, s.token = "", ""
                     s.fresh_token_at = 0
+                    s.game_verified = False
                 return self.json_reply(200, {'ok': True, 'message': 'Yostar 인증 메일을 보냈습니다.'}, sid=sid)
 
             sid, s = self._get_session()
@@ -405,6 +348,7 @@ class Handler(SimpleHTTPRequestHandler):
                 with lock:
                     s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
                     s.fresh_token_at = time.monotonic()
+                    s.game_verified = False
                 return self.json_reply(200, {'ok': True, 'authenticated': True}, sid=sid)
             if action == '/api/auth/logout':
                 with lock:
@@ -415,12 +359,6 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.json_reply(401, {'error': '먼저 Yostar 이메일 인증을 완료해 주세요.', 'needs_auth': True})
                 url = extract_share_url(str(body.get('url', '')))
                 _, host = parse_url(url)
-                if host == 'mahjongsoul.game.yo-star.com' and s.region == 'jp':
-                    return self.json_reply(409, {'code':'REGION_MISMATCH',
-                        'error':'영문/한국 작혼 링크는 영문 또는 한국 Yostar 지역 인증을 선택해 주세요.'})
-                if host in ('game.mahjongsoul.com','mahjongsoul.com','www.mahjongsoul.com') and s.region != 'jp':
-                    return self.json_reply(409, {'code':'REGION_MISMATCH',
-                        'error':'일본 작혼 링크는 일본 Yostar 지역 인증을 선택해 주세요.'})
                 if host in ('game.maj-soul.com', 'game.maj-soul.net'):
                     raise ValueError('중국 서버 링크는 별도의 중국 서버 계정 인증이 필요합니다.')
                 result = fetch_from_mahjongsoul(url, s)
@@ -433,12 +371,16 @@ class Handler(SimpleHTTPRequestHandler):
             # Return safe, actionable classifications, never auth tokens, stack or OTP.
             typ = type(exc).__name__
             if typ == 'VerificationCodeRequired':
+                if s:
+                    with lock:
+                        s.uid, s.token, s.game_verified = '', '', False
                 return self.json_reply(401, {'error': '인증 세션이 만료되었습니다. 이메일 인증을 다시 진행해 주세요.', 'needs_auth': True})
-            if typ in ('YostarApiError', 'RemoteReplayError', 'ReplayNotFoundError',
+            if typ in ('GameError', 'YostarApiError', 'RemoteReplayError', 'ReplayNotFoundError',
                        'AuthenticationRequired', 'VerificationCodeRequired'):
                 if action.startswith('/api/auth'):
                     return self.json_reply(502, {'code': 'YOSTAR_AUTH_FAILED',
-                                                 'error': 'Yostar 이메일 인증 서버에 연결하거나 로그인하지 못했습니다.'})
+                                                 'error': 'Yostar 이메일 인증에 실패했습니다. 인증코드와 계정 지역을 확인해 주세요.',
+                                                 'server_code': getattr(exc, 'code', 0)})
                 status, data = public_fetch_error(exc)
                 print('Replay fetch failed:', typ, data['code'])
                 return self.json_reply(status, data)
@@ -446,7 +388,34 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_reply(500, {'error': '서버 내부 오류가 발생했습니다.'})
 
 
+def probe_gateway():
+    """One unauthenticated connection check on startup, never a login claim."""
+    global gateway_probe
+    async def probe():
+        from majsoul_client import bootstrap, connect, profile_for, MSRPCChannel
+        from contextlib import suppress
+        profile = profile_for('kr')
+        routes = await bootstrap(profile)
+        channel = MSRPCChannel(routes[0][0])
+        try:
+            await connect(channel, profile, routes[0][1])
+        finally:
+            if channel._ws is not None:
+                with suppress(Exception):
+                    await channel.close()
+    gateway_probe = {'status': 'checking', 'authenticated': False}
+    try:
+        asyncio.run(asyncio.wait_for(probe(), timeout=45))
+        gateway_probe = {'status': 'connected', 'authenticated': False}
+    except Exception as exc:
+        gateway_probe = {'status': 'failed', 'authenticated': False,
+                         'stage': getattr(exc, 'stage', 'connect'),
+                         'error_type': type(exc).__name__, 'server_code': getattr(exc, 'code', 0)}
+    print('Gateway probe:', gateway_probe, flush=True)
+
+
 if __name__ == '__main__':
+    threading.Thread(target=probe_gateway, daemon=True).start()
     port = int(os.getenv('PORT', '8765'))
     print(f'Paipu Select started: http://0.0.0.0:{port}')
     ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()

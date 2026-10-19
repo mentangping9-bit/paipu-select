@@ -1,0 +1,1 @@
+-r PAIPU_SELECT_Mobile_Web_FullStack_v2/requirements.txt
