@@ -21,8 +21,10 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import nullcontext
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from service_account import ServiceAccount, SessionVault
+from postgres_vault import PostgresVault, VaultBusy, VaultCorrupt, VaultUnavailable
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -67,9 +69,12 @@ def configure_service_account():
     if email and (not EMAIL.fullmatch(email) or region not in ('kr', 'jp', 'en')):
         raise ValueError('공용 계정 환경 설정이 올바르지 않습니다.')
     path, key = os.getenv('PAIPU_ACCOUNT_FILE', ''), os.getenv('PAIPU_ACCOUNT_KEY', '')
-    if bool(path) != bool(key):
-        raise ValueError('공용 계정 저장 경로와 암호화 키를 함께 설정해야 합니다.')
-    vault = SessionVault(path, key, PUBLIC) if path else None
+    database = os.getenv('PAIPU_DATABASE_URL', '')
+    if path and database:
+        raise ValueError('공용 계정 저장소는 한 가지만 설정해 주세요.')
+    if bool(path or database) != bool(key):
+        raise ValueError('공용 계정 저장소와 암호화 키를 함께 설정해야 합니다.')
+    vault = PostgresVault(database, key) if database else SessionVault(path, key, PUBLIC) if path else None
     return ServiceAccount(email, region, Session, vault)
 
 
@@ -193,12 +198,33 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
             session.game_verified = True
         return check_tenhou(payload)
     try:
-        return asyncio.run(asyncio.wait_for(work(), timeout=100))
+        with service_account.vault_lock() if shared else nullcontext():
+            if shared:
+                try:
+                    service_account.restore()
+                except (VaultUnavailable, VaultCorrupt):
+                    service_account.storage_error = True
+                    raise
+                if not service_account.owns(session) or not session.token:
+                    from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
+                    raise AuthenticationRequired(session.region)
+            try:
+                return asyncio.run(asyncio.wait_for(work(), timeout=100))
+            except Exception as exc:
+                if type(exc).__name__ == 'VerificationCodeRequired':
+                    # Still under both locks: don't erase a newer token saved
+                    # by another deployment after this request releases them.
+                    service_account.invalidate(session)
+                    session.uid, session.token, session.game_verified = '', '', False
+                raise
     finally:
         session.operation.release()
 
 
 def public_fetch_error(error: Exception) -> tuple[int, dict]:
+    if type(error).__name__ == 'YostarApiError':
+        return 502, {'code': 'SDK_REFRESH_REJECTED', 'server_code': error.code,
+                     'error': 'Yostar가 저장된 세션의 자동 인증을 거부했습니다. 인증 정보는 보존했습니다. 잠시 후 다시 시도하고, 계속 실패하면 운영자 설정에서 이메일 재인증해 주세요.'}
     if type(error).__name__ == 'GameError':
         stage, code = error.stage, error.code
         message = {
@@ -414,18 +440,23 @@ class Handler(SimpleHTTPRequestHandler):
                 _converter()
                 from regional_auth import regional_client
                 client = regional_client(s.region, s.device_id)
-                verified = asyncio.run(asyncio.wait_for(client.exchange_email_code(s.email, code), timeout=50))
-                with lock:
-                    s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
-                    s.fresh_token_at = time.monotonic()
-                    s.game_verified = False
-                enrolled = service_account.enroll(s)
+                with service_account.registration(s) as shared_registration:
+                    verified = asyncio.run(asyncio.wait_for(client.exchange_email_code(s.email, code), timeout=50))
+                    with lock:
+                        s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
+                        s.fresh_token_at = time.monotonic()
+                        s.game_verified = False
+                    enrolled = service_account.enroll(s, registered=True) if shared_registration else False
                 return self.json_reply(200, {'ok': True, 'authenticated': True,
                                              'shared_enrolled': enrolled}, sid=sid)
             if action == '/api/auth/logout':
                 with lock:
                     sessions.pop(sid, None)
                 return self.json_reply(200, {'ok': True})
+        except (VaultBusy, VaultUnavailable, VaultCorrupt) as exc:
+            if not isinstance(exc, VaultBusy):
+                service_account.storage_error = True
+            return self.json_reply(503, {'code': 'ACCOUNT_STORAGE_UNAVAILABLE', 'error': str(exc)})
         except ValueError as exc:
             return self.json_reply(400, {'error': str(exc)})
         except asyncio.TimeoutError:
@@ -434,11 +465,7 @@ class Handler(SimpleHTTPRequestHandler):
             # Return safe, actionable classifications, never auth tokens, stack or OTP.
             typ = type(exc).__name__
             if typ == 'VerificationCodeRequired':
-                if s:
-                    service_account.invalidate(s)
-                    with lock:
-                        s.uid, s.token, s.game_verified = '', '', False
-                return self.json_reply(401, {'error': '인증 세션이 만료되었습니다. 이메일 인증을 다시 진행해 주세요.', 'needs_auth': True})
+                return self.json_reply(401, {'error': '저장된 인증 세션을 사용할 수 없습니다. 이메일 인증을 다시 진행해 주세요.', 'needs_auth': True})
             if typ in ('GameError', 'YostarApiError', 'RemoteReplayError', 'ReplayNotFoundError',
                        'AuthenticationRequired', 'VerificationCodeRequired'):
                 if action.startswith('/api/auth'):

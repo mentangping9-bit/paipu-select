@@ -73,9 +73,15 @@ async function refreshAuth(){
     $('sharedSetup').hidden=!data.shared_configured||(sharedReady&&!operatorMode);
     $('authPanel').hidden=!!data.shared_configured&&!operatorMode;
     if(data.shared_configured){
+      const storageText=data.shared_session_storage==='encrypted_postgres'
+        ? ' 인증 정보는 외부 DB에 암호화 저장되며 서버 재시작 후 복원됩니다.'
+        : data.shared_session_storage==='encrypted_file'
+        ? ' 세션은 서버의 암호화 저장 파일에서 복원됩니다.'
+        : ' 현재 메모리 저장 모드이므로 서버 재시작 후에는 운영자 재인증이 필요합니다.';
       $('sharedSetupDetail').textContent=operatorMode
-        ? '서버에 지정한 공용 계정 이메일로 인증하면 방문자가 로그인 없이 패보를 조회할 수 있습니다.'+(data.shared_session_storage==='memory'?' 현재 메모리 저장 모드이므로 서버 재시작 후에는 운영자 재인증이 필요합니다.':' 세션은 서버의 암호화 저장 파일에서 복원됩니다.')
+        ? '서버에 지정한 공용 계정 이메일로 인증하면 방문자가 로그인 없이 패보를 조회할 수 있습니다.'+storageText
         : '공용 계정의 최초 인증 또는 재인증이 필요합니다. 운영자 설정 화면에서 연결해 주세요.';
+      if(data.shared_storage_available===false)$('sharedSetupDetail').textContent='인증 저장소에 연결할 수 없습니다. 인증 정보는 보존되어 있으며 서버의 저장소 설정 확인이 필요합니다. JSON 업로드는 계속 사용할 수 있습니다.';
       if(operatorMode)$('authInfo').textContent='지정된 공용 계정만 등록됩니다. 일반 방문자에게 이메일·토큰은 공개되지 않습니다. 인증이 만료되면 운영자가 다시 인증해야 합니다.';
     }
     $('authLoggedOut').hidden=authenticated;

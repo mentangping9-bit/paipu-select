@@ -81,4 +81,18 @@ def regional_client(region: str, device_id: str = ""):
             return YostarSession(uid=str(info["ID"]), token=str(info["Token"]),
                                  device_id=self.device_id)
 
+        async def refresh(self, uid, token):
+            # The upstream implementation treats *every* API error and even
+            # malformed responses as expired credentials. Without documented
+            # provider error-code semantics we must preserve the saved token.
+            # HTTP/network/API failures are reported without deleting it.
+            result = await self._post('user/quick-login', {}, uid=uid, token=token)
+            try:
+                refreshed = result['Data']['UserInfo']['Token']
+                if not isinstance(refreshed, str) or not refreshed:
+                    raise ValueError()
+            except (KeyError, TypeError, ValueError):
+                raise RemoteReplayError('Yostar 자동 인증 응답에 세션 정보가 없습니다.') from None
+            return YostarSession(uid=uid, token=refreshed, device_id=self.device_id)
+
     return RegionClient()
