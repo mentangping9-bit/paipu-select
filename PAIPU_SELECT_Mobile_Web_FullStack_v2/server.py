@@ -472,7 +472,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.3.4',
+                                  'version': '3.3.5',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
@@ -687,6 +687,8 @@ if __name__ == '__main__':
             print('Vault integration validation failed:', json.dumps(safe_database_error(exc)), flush=True)
             raise SystemExit(1) from None
     threading.Thread(target=probe_gateway, daemon=True).start()
+    from login_diagnostic import diagnose_pool
+    threading.Thread(target=diagnose_pool, args=(service_pool,), daemon=True).start()
     port = int(os.getenv('PORT', '8765'))
     print(f'Runtime Python: {sys.version.split()[0]}', flush=True)
     for slot, account in enumerate(service_pool.accounts, 1):
