@@ -64,6 +64,7 @@ class ServiceAccount:
         self.lock = threading.RLock()
         self.operation = threading.Lock()
         self.storage_error = False
+        self.cooldown_until = 0
         if self.email and vault:
             try:
                 self.restore()
@@ -84,9 +85,14 @@ class ServiceAccount:
         with self.lock:
             if not saved:
                 self.session = None
+                self.cooldown_until = 0
             else:
                 if saved.get('email') != self.email or saved.get('region') != self.region:
                     raise VaultCorrupt('저장된 계정과 서버의 공용 계정 설정이 다릅니다.')
+                cooldown = saved.get('cooldown_until', 0)
+                if not isinstance(cooldown, (int, float)) or not 0 <= cooldown < 100000000000:
+                    raise VaultCorrupt('계정 대기 정보 형식이 올바르지 않습니다.')
+                self.cooldown_until = cooldown
                 fields = {k: saved.get(k, '') for k in ('uid', 'token', 'device_id')}
                 if not all(isinstance(v, str) for v in fields.values()) or (
                         bool(fields['uid']) != bool(fields['token'])) or (
@@ -163,7 +169,7 @@ class ServiceAccount:
         if self.vault:
             self.vault.save({'version': 1, 'email': self.email, 'region': self.region,
                              'uid': session.uid, 'token': session.token,
-                             'device_id': session.device_id})
+                             'device_id': session.device_id, 'cooldown_until': self.cooldown_until})
 
     def invalidate(self, session):
         with self.lock:
@@ -180,3 +186,103 @@ class ServiceAccount:
                 'shared_game_authenticated': bool(s and s.game_verified),
                 'shared_session_storage': self.vault.storage if self.vault else 'memory',
                 'shared_storage_available': not self.storage_error}
+
+
+class SlotVault:
+    """Keep up to three encrypted profiles in the existing restricted DB row.
+
+    Primary fields retain their legacy representation. Every merge occurs under
+    the same advisory lock; replacing primary tokens preserves secondary slots.
+    """
+    def __init__(self, vault, slot):
+        self.vault, self.slot = vault, str(slot)
+        self.storage = vault.storage
+
+    def locked(self):
+        return self.vault.locked()
+
+    def load(self):
+        saved = self.vault.load()
+        if not saved:
+            return None
+        if self.slot == '1':
+            return saved if 'email' in saved else None
+        slots = saved.get('accounts', {})
+        if not isinstance(slots, dict) or any(key not in ('2','3') for key in slots):
+            raise VaultCorrupt('저장된 조회 계정 슬롯이 올바르지 않습니다.')
+        value = slots.get(self.slot)
+        if value is not None and not isinstance(value, dict):
+            raise VaultCorrupt('저장된 조회 계정 정보가 올바르지 않습니다.')
+        return value
+
+    def save(self, value):
+        with self.vault.locked():
+            previous = self.vault.load() or {'version':1}
+            if self.slot == '1':
+                merged = dict(value)
+                if previous.get('accounts'):
+                    merged['accounts'] = previous['accounts']
+            else:
+                merged = dict(previous)
+                slots = dict(merged.get('accounts', {}))
+                slots[self.slot] = value
+                merged['accounts'] = slots
+            self.vault.save(merged)
+
+
+class AccountsCooling(RuntimeError):
+    def __init__(self, seconds):
+        self.retry_after = max(1, int(seconds)+1)
+        super().__init__('조회 계정이 쉬는 중입니다.')
+
+
+class AccountPool:
+    def __init__(self, accounts, clock=time.time, cooldown=600):
+        self.accounts, self.clock, self.cooldown = accounts, clock, cooldown
+        self.cursor = 0
+        self.lock = threading.RLock()
+
+    def registration_account(self, slot):
+        if not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= len(self.accounts):
+            raise ValueError('등록할 조회 계정을 선택해 주세요.')
+        return self.accounts[slot-1]
+
+    def owner(self, session):
+        return next((account for account in self.accounts if account.owns(session)), None)
+
+    def flags(self):
+        states = [account.status() for account in self.accounts]
+        return {'shared_ready':any(s['shared_ready'] for s in states),
+                'shared_game_authenticated':any(s['shared_game_authenticated'] for s in states),
+                'shared_accounts':[{'slot':i+1, 'ready':s['shared_ready'],
+                    'cooling':self.accounts[i].cooldown_until > self.clock()}
+                    for i,s in enumerate(states)]}
+
+    def fetch(self, text, fetch):
+        with self.lock:
+            eligible = [(i,a) for i,a in enumerate(self.accounts)
+                        if a.status()['shared_ready'] and a.cooldown_until <= self.clock()]
+            if not eligible:
+                ready = [a for a in self.accounts if a.status()['shared_ready']]
+                if ready:
+                    raise AccountsCooling(min(a.cooldown_until for a in ready)-self.clock())
+                from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
+                raise AuthenticationRequired(self.accounts[0].region)
+            index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
+            self.cursor = (index+1)%len(self.accounts)
+            session = account.ready_session()
+        try:
+            return fetch(text, session, account)
+        except Exception as exc:
+            if getattr(exc, 'stage', None) == 'fetch_record' and getattr(exc, 'code', None) == 540:
+                # Persist the pause across Render restarts. This is a conservative
+                # operating pause, not a claim about the provider's reset period.
+                with account.operation, account.vault_lock():
+                    account.restore()
+                    account.cooldown_until = max(account.cooldown_until, self.clock()+self.cooldown)
+                    if account.session:
+                        account.save(account.session)
+                ready = [a for a in self.accounts if a.status()['shared_ready']]
+                exc.can_retry = any(a.cooldown_until <= self.clock() for a in ready)
+                exc.retry_after = max(60, int(min(a.cooldown_until for a in ready)-self.clock())+1) if ready else 60
+            raise

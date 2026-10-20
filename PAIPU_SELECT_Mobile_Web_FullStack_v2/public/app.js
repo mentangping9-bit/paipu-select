@@ -43,11 +43,48 @@ function normalizedUrl(text) {
 }
 function validUrl(text){try{normalizedUrl(text);return true;}catch{return false;}}
 
-async function loadFromUrl(){if(busy||Date.now()<retryUntil)return;clearError();let value;
-try { value=normalizedUrl($('paipuInput').value); }
-catch(e){alertError(i18n.error(e.message));return;}
-// Keep the original pasted caption in the input so it is not lost.
- busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent=t('작혼 패보를 가져오는 중…');try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),150000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===429||response.status===503)setReplayCooldown(data,response);if(response.status===401){await refreshAuth();const panel=$('authPanel').hidden?$('sharedSetup'):$('authPanel');panel.scrollIntoView({behavior:'smooth',block:'center'});toast(sharedReady?t('공용 계정 연결 상태를 확인해 주세요.'):apiError(data,response.status));}throw Error(apiError(data,response.status));}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?t('150초 동안 서버 응답이 없습니다.'):i18n.error(e.message);if(e instanceof TypeError){$('backendDetail').textContent=t('변환 서버에 연결할 수 없습니다.');$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;updateConvertButton();}}
+let queueSnapshot=null;
+function renderQueue(data){
+ queueSnapshot=data;$('queuePanel').hidden=false;
+ $('queueTitle').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});
+ $('queueDetail').textContent=data.state==='processing'?t('작혼 패보를 가져와 변환하고 있습니다.'):
+  (data.cooldown?t('작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.'):
+  t('전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.'))+
+  (data.wait_seconds>0?' '+t('조회 간격 대기: {n}초 이상',{n:data.wait_seconds}):'');
+ $('convertUrlBtn').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});
+}
+async function replayResponse(response){
+ const data=await response.json().catch(()=>({}));
+ if(!response.ok){
+  if(response.status===429||response.status===503)setReplayCooldown(data,response);
+  if(response.status===401)await refreshAuth();
+  throw Error(apiError(data,response.status));
+ }
+ return data;
+}
+async function loadFromUrl(){
+ if(busy||Date.now()<retryUntil)return;
+ clearError();let value;
+ try{value=normalizedUrl($('paipuInput').value);}catch(e){alertError(i18n.error(e.message));return;}
+ busy=true;updateConvertButton();
+ try{
+  const response=await fetch('/api/convert',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:AbortSignal.timeout(30000)});
+  let data=await replayResponse(response);
+  const deadline=Date.now()+35*60*1000;
+  while(data.job){
+   renderQueue(data);
+   if(Date.now()>deadline)throw Error(t('대기 시간이 길어졌습니다. 잠시 후 다시 접수해 주세요.'));
+   await new Promise(resolve=>setTimeout(resolve,Math.min(5,Math.max(2,Number(data.poll_after)||2))*1000));
+   const poll=await fetch('/api/convert/status?job='+encodeURIComponent(data.job),{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(15000)});
+   data=await replayResponse(poll);
+  }
+  importData(data,'작혼 공유 패보');
+ }catch(e){
+  const msg=e.name==='TimeoutError'||e.name==='AbortError'?t('서버 응답을 기다리는 중 연결이 끊겼습니다. 잠시 후 다시 접수해 주세요.'):i18n.error(e.message);
+  if(e instanceof TypeError){$('backendDetail').textContent=t('변환 서버에 연결할 수 없습니다.');$('backendInfo').hidden=false;}
+  alertError(msg);
+ }finally{busy=false;queueSnapshot=null;$('queuePanel').hidden=true;updateConvertButton();}
+}
 async function copyOutput(){
  const text=$('outputArea').value;
  try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');return true;}
@@ -77,6 +114,10 @@ $('urlTab').onclick=()=>switchTab('url');$('fileTab').onclick=()=>switchTab('fil
 $('resetBtn').onclick=()=>{$('inputPanel').hidden=false;$('roundPanel').hidden=true;$('resultPanel').hidden=true;clearError();$('inputPanel').scrollIntoView({behavior:'smooth'});};$('allBtn').onclick=()=>setChosen(()=>true);$('noneBtn').onclick=()=>setChosen(()=>false);$('eastBtn').onclick=()=>setChosen(r=>r.roundNo<4);$('southBtn').onclick=()=>setChosen(r=>r.roundNo>=4&&r.roundNo<8);$('generateBtn').onclick=buildOutput;$('copyBtn').onclick=copyOutput;$('downloadBtn').onclick=saveOutput;$('editBtn').onclick=()=>{$('resultPanel').hidden=true;$('roundPanel').hidden=false;};
 // Server-backed Yostar authentication; no passwords and no session token in JS storage.
 function apiError(data,status){
+ if(data.code==='UPSTREAM_REPLAY_LIMITED')return t('작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.');
+ if(data.code==='REPLAY_QUEUE_EXPIRED')return t('대기 요청이 만료되었거나 서버가 재시작됐습니다. 다시 접수해 주세요.');
+ if(data.code==='REPLAY_QUEUE_FULL')return t('대기열이 가득 찼습니다. 잠시 후 다시 접수해 주세요.');
+ if(data.code==='REPLAY_ALREADY_QUEUED')return t('이미 접수한 패보를 처리 중입니다. 완료 후 다른 패보를 접수해 주세요.');
  if(data.code==='REPLAY_BUSY')return t('현재 다른 패보를 처리 중입니다. 잠시 후 다시 시도해 주세요.');
  if(data.code==='VISITOR_RATE_LIMITED')return t('짧은 시간에 요청이 많았습니다. 버튼의 대기 시간이 끝나면 다시 이용할 수 있습니다.');
  if(data.code==='SERVICE_RATE_LIMITED')return t('현재 패보 조회가 몰리고 있습니다. 버튼의 대기 시간이 끝나면 다시 시도해 주세요.');
@@ -119,8 +160,19 @@ function renderAuth(data){
       if(data.shared_storage_available===false)$('sharedSetupDetail').textContent=t('인증 저장소에 연결할 수 없습니다. 인증 정보는 보존되어 있으며 서버의 저장소 설정 확인이 필요합니다. JSON 업로드는 계속 사용할 수 있습니다.');
       if(operatorMode)$('authInfo').textContent=t('지정된 공용 계정만 등록됩니다. 일반 방문자에게 이메일·토큰은 공개되지 않습니다. 인증이 만료되면 운영자가 다시 인증해야 합니다.');
     }
-    $('authLoggedOut').hidden=authenticated;
-    $('authLoggedIn').hidden=!authenticated;
+    $('accountSlotField').hidden=!serviceSetup;
+    if(serviceSetup){
+      const selected=$('accountSlot').value;
+      $('accountSlot').replaceChildren();
+      for(const account of data.shared_accounts||[{slot:1,ready:sharedReady}]){
+        const option=document.createElement('option');option.value=String(account.slot);
+        option.textContent=t('조회 계정 {n}',{n:account.slot})+' · '+(account.ready?t('연결됨'):t('최초 인증 필요'))+(account.cooling?' · '+t('일시 휴식 중'):'');
+        $('accountSlot').append(option);
+      }
+      if([...$('accountSlot').options].some(o=>o.value===selected))$('accountSlot').value=selected;
+    }
+    $('authLoggedOut').hidden=authenticated&&!serviceSetup;
+    $('authLoggedIn').hidden=!authenticated||serviceSetup;
     $('signedInEmail').textContent=(data.email||t('로그인됨'))+' · '+String(data.region||'kr').toUpperCase();
     if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=serviceSetup;}
     $('authStatus').textContent=operatorMode&&data.shared_configured?(sharedReady?t('공용 조회 계정 연결됨'):t('공용 계정 최초 인증 필요')):authenticated?(data.game_authenticated?t('게임 로그인 및 패보 조회 확인됨'):t('이메일 인증 완료 · 게임 로그인은 조회 시 확인')):t('작혼 패보를 읽기 위한 이메일 인증');
@@ -130,17 +182,18 @@ $('sendCodeBtn').onclick=async()=>{
   const btn=$('sendCodeBtn');btn.disabled=true;
   clearError();btn.textContent=t('발송 중…');
   try{
-    await api('/api/auth/send-code',serviceSetup?{service_account:true}:{email:$('emailInput').value.trim(),region:$('regionSelect').value});
+    await api('/api/auth/send-code',serviceSetup?{service_account:true,account_slot:Number($('accountSlot').value)}:{email:$('emailInput').value.trim(),region:$('regionSelect').value});
     $('verifyRow').hidden=false;toast('Yostar 인증 메일을 확인해 주세요.');$('codeInput').focus();
   }catch(e){authError(e);}
   finally{btn.disabled=false;btn.textContent=serviceSetup?t('공용 계정 인증 메일 발송'):t('인증 메일 발송');}
 };
+$('accountSlot').onchange=()=>{$('verifyRow').hidden=true;$('codeInput').value='';clearError();};
 $('verifyBtn').onclick=async()=>{
   const btn=$('verifyBtn');btn.disabled=true;btn.textContent=t('인증 중…');clearError();
   try{
     await api('/api/auth/verify',{code:$('codeInput').value.trim()});
     $('codeInput').value='';await refreshAuth();toast('인증 성공.');
-    if($('paipuInput').value.trim() && validUrl($('paipuInput').value))await loadFromUrl();
+    if(!serviceSetup && $('paipuInput').value.trim() && validUrl($('paipuInput').value))await loadFromUrl();
   }catch(e){authError(e);}
   finally{btn.disabled=false;btn.textContent=t('로그인');}
 };
@@ -162,6 +215,7 @@ document.addEventListener('paipu-language-change',()=>{
  clearError();$('toast').hidden=true;
  if(authSnapshot)renderAuth(authSnapshot);
  updateConvertButton();
+ if(queueSnapshot)renderQueue(queueSnapshot);
  if(!$('verifyBtn').disabled)$('verifyBtn').textContent=t('로그인');
  if(rounds.length){renderRounds();$('matchTitle').textContent=t(latestFile);if(!$('resultPanel').hidden)buildOutput();}
 });

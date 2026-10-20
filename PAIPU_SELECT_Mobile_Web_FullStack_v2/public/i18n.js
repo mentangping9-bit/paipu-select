@@ -2,6 +2,23 @@
 (() => {
 'use strict';
 const messages = {
+  "패보 처리 중": {"ko": "패보 처리 중", "en": "Processing replay", "ja": "牌譜を処理中"},
+  "대기열 {n}번째": {"ko": "대기열 {n}번째", "en": "Queue position: {n}", "ja": "順番待ち：{n}番目"},
+  "작혼 패보를 가져와 변환하고 있습니다.": {"ko": "작혼 패보를 가져와 변환하고 있습니다.", "en": "Fetching and converting your Mahjong Soul replay.", "ja": "雀魂の牌譜を取得・変換しています。"},
+  "작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.": {"ko": "작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.", "en": "Pausing for Mahjong Soul’s retrieval limit. Requests resume automatically in order.", "ja": "雀魂の取得制限のため一時休止中です。受付順に自動で処理を再開します。"},
+  "전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.": {"ko": "전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.", "en": "Requests are processed in order, up to 10 per minute across all visitors. No need to submit again.", "ja": "全体で毎分10件まで、受付順に処理します。再送信は不要です。"},
+  "조회 간격 대기: {n}초 이상": {"ko": "조회 간격 대기: {n}초 이상", "en": "Retrieval interval wait: at least {n} seconds", "ja": "取得間隔の待ち時間：あと{n}秒以上"},
+  "대기 시간이 길어졌습니다. 잠시 후 다시 접수해 주세요.": {"ko": "대기 시간이 길어졌습니다. 잠시 후 다시 접수해 주세요.", "en": "The wait is taking longer than expected. Please submit again later.", "ja": "待ち時間が長くなっています。しばらくしてから再度お申し込みください。"},
+  "서버 응답을 기다리는 중 연결이 끊겼습니다. 잠시 후 다시 접수해 주세요.": {"ko": "서버 응답을 기다리는 중 연결이 끊겼습니다. 잠시 후 다시 접수해 주세요.", "en": "The connection timed out. Please submit again shortly.", "ja": "サーバーへの接続がタイムアウトしました。しばらくしてから再度お試しください。"},
+  "작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.": {"ko": "작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.", "en": "Mahjong Soul’s replay retrieval limit was reached. Please try again later.", "ja": "雀魂の牌譜取得制限に達しました。しばらくしてからお試しください。"},
+  "대기 요청이 만료되었거나 서버가 재시작됐습니다. 다시 접수해 주세요.": {"ko": "대기 요청이 만료되었거나 서버가 재시작됐습니다. 다시 접수해 주세요.", "en": "Your queued request expired or the server restarted. Please submit again.", "ja": "待機中のリクエストが期限切れになったか、サーバーが再起動しました。再度お申し込みください。"},
+  "대기열이 가득 찼습니다. 잠시 후 다시 접수해 주세요.": {"ko": "대기열이 가득 찼습니다. 잠시 후 다시 접수해 주세요.", "en": "The queue is full. Please submit again shortly.", "ja": "待機列が満員です。しばらくしてから再度お申し込みください。"},
+  "이미 접수한 패보를 처리 중입니다. 완료 후 다른 패보를 접수해 주세요.": {"ko": "이미 접수한 패보를 처리 중입니다. 완료 후 다른 패보를 접수해 주세요.", "en": "Your previous replay is still queued or processing. Please wait before submitting another.", "ja": "受付済みの牌譜を処理中です。完了してから別の牌譜をお申し込みください。"},
+  "등록할 조회 계정": {"ko": "등록할 조회 계정", "en": "Replay account to register", "ja": "登録する取得用アカウント"},
+  "조회 계정 {n}": {"ko": "조회 계정 {n}", "en": "Replay account {n}", "ja": "取得用アカウント{n}"},
+  "연결됨": {"ko": "연결됨", "en": "Connected", "ja": "接続済み"},
+  "최초 인증 필요": {"ko": "최초 인증 필요", "en": "Initial authentication needed", "ja": "初回認証が必要"},
+  "일시 휴식 중": {"ko": "일시 휴식 중", "en": "Temporarily paused", "ja": "一時休止中"},
   "패보 셀렉터 · 작혼 → NAGA": {
     "ko": "패보 셀렉터 · 작혼 → NAGA",
     "en": "PAIPU SELECT · Mahjong Soul → NAGA",

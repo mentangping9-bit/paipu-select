@@ -14,7 +14,8 @@ import pytest
 import majsoul_client
 import regional_auth
 import server
-from service_account import ServiceAccount, SessionVault
+from service_account import ServiceAccount, SessionVault, AccountPool
+from replay_admission import ReplayAdmission, ReplayQueue
 from paipu_vendor.mahjong_url_parser.sources.yostar import YostarSession
 
 FIXTURE = json.loads(Path(__file__).with_name('fixture.json').read_text())
@@ -79,7 +80,7 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
     worker.start()
     base = f'http://127.0.0.1:{api.server_port}'
     operator = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-    visitor = urllib.request.build_opener()
+    visitor = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     client = type('Client', (), {'device_id':'private-device','send_email_code':AsyncMock(),
                                 'exchange_email_code':AsyncMock(return_value=YostarSession('private-uid','private-token','private-device')),
                                 'refresh':AsyncMock(return_value=YostarSession('private-uid','rotated-token','private-device'))})()
@@ -89,8 +90,18 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
             headers['X-Paipu-Operator-Key'] = 'test-operator-key-with-at-least-32-characters'
         return opener.open(urllib.request.Request(base+path, data=json.dumps(value).encode(),
                                                   headers=headers))
+    def converted():
+        response=post(visitor,'/api/convert',{'url':URL})
+        data=json.load(response)
+        deadline=time.monotonic()+3
+        while 'job' in data and time.monotonic()<deadline:
+            threading.Event().wait(0.005)
+            data=json.load(visitor.open(base+'/api/convert/status?job='+data['job']))
+        return data
+    admission=ReplayAdmission()
+    queue=ReplayQueue(admission,server.public_fetch_error,spacing=0)
     try:
-        with patch.object(server,'OPERATOR_KEY','test-operator-key-with-at-least-32-characters'), patch.object(server,'service_account',manager), patch.object(regional_auth,'regional_client',return_value=client), patch.object(
+        with patch.object(server,'service_pool',AccountPool([manager])), patch.object(server,'replay_queue',queue), patch.object(server,'OPERATOR_KEY','test-operator-key-with-at-least-32-characters'), patch.object(server,'service_account',manager), patch.object(regional_auth,'regional_client',return_value=client), patch.object(
                 majsoul_client,'fetch_record',new=AsyncMock(return_value=FIXTURE)):
             page = visitor.open(base+'/?setup=1')
             assert page.headers['Cache-Control'] == 'no-store'
@@ -105,17 +116,16 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
             assert status['shared_ready'] and not status['authenticated']
             assert not status['email']
             assert not any(secret in json.dumps(status) for secret in ['private-token','private-uid','private-device','service@example.com'])
-            assert len(json.load(post(visitor,'/api/convert',{'url':URL}))['log']) == 10
+            assert len(converted()['log']) == 10
             post(operator,'/api/auth/logout',{}).read()
             server.sessions.clear()  # Browser sessions may expire independently.
             assert json.load(visitor.open(base+'/api/auth/status'))['shared_game_authenticated']
-            assert len(json.load(post(visitor,'/api/convert',{'url':URL}))['log']) == 10
+            assert len(converted()['log']) == 10
             # Simulate a new process loading only the encrypted file.
             restored = ServiceAccount('service@example.com','kr',server.Session,manager.vault)
-            from replay_admission import ReplayAdmission
             # A process restart also loses the nonpersistent replay cache.
-            with patch.object(server,'service_account',restored), patch.object(server,'replay_admission',ReplayAdmission()):
-                assert len(json.load(post(visitor,'/api/convert',{'url':URL}))['log']) == 10
+            with patch.object(server,'service_account',restored), patch.object(server,'service_pool',AccountPool([restored])), patch.object(server,'replay_queue',ReplayQueue(ReplayAdmission(),server.public_fetch_error,spacing=0)):
+                assert len(converted()['log']) == 10
             assert manager.vault.load()['token'] == 'rotated-token'
     finally:
         api.shutdown()

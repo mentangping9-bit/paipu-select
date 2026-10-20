@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-from replay_admission import ReplayAdmission, ReplayLimited
+from replay_admission import ReplayAdmission, ReplayLimited, ReplayQueue
 import server
-from service_account import ServiceAccount
+from service_account import ServiceAccount, AccountPool
 
 
 def test_normal_use_cache_isolation_and_window_recovery():
@@ -146,19 +146,29 @@ def test_http_cookie_is_not_auth_and_throttles_have_retry_after():
     api=server.BoundedHTTPServer(('127.0.0.1',0),server.Handler)
     worker=threading.Thread(target=api.serve_forever,daemon=True);worker.start()
     url='https://game.mahjongsoul.com/?paipu=261020-f5be3e18-149e-4a08-9060-9d304e07f891_a460096575'
-    def request(cookie=''):
+    queue=ReplayQueue(admission,server.public_fetch_error,spacing=0)
+    def request(cookie='',job=None):
         connection=http.client.HTTPConnection('127.0.0.1',api.server_port,timeout=2)
-        connection.request('POST','/api/convert',json.dumps({'url':url}),{'Content-Type':'application/json','Cookie':cookie})
+        if job:
+            connection.request('GET','/api/convert/status?job='+job,headers={'Cookie':cookie})
+        else:
+            connection.request('POST','/api/convert',json.dumps({'url':url}),{'Content-Type':'application/json','Cookie':cookie})
         response=connection.getresponse();raw=response.read()
         result=(response.status,dict(response.getheaders()),json.loads(raw));connection.close();return result
     try:
-        with patch.object(server,'service_account',owner),patch.object(server,'replay_admission',admission),patch.object(
+        with patch.object(server,'service_account',owner),patch.object(server,'replay_admission',admission),patch.object(server,'service_pool',AccountPool([owner])),patch.object(server,'replay_queue',queue),patch.object(
                 server,'fetch_from_mahjongsoul',return_value={'log':[]}) as fetch,patch.dict('os.environ',{'PUBLIC_HTTPS':'1'}):
-            status,headers,_=request()
-            assert status==200 and headers['X-Paipu-Cache']=='MISS'
+            status,headers,body=request()
+            assert status==202 and headers['X-Paipu-Cache']=='QUEUED'
             cookie=headers['Set-Cookie'].split(';')[0]
             assert cookie.startswith('ps_visitor=') and 'private-token' not in cookie
             assert 'HttpOnly' in headers['Set-Cookie'] and 'Secure' in headers['Set-Cookie']
+            ticket=body['job']
+            deadline=time.monotonic()+2
+            while request(cookie,ticket)[0]==202 and time.monotonic()<deadline:
+                threading.Event().wait(0.005)
+            assert request(cookie,ticket)[0]==200
+            assert request('',ticket)[0]==404
             assert request(cookie)[1]['X-Paipu-Cache']=='HIT'
             status,headers,body=request(cookie)
             assert status==429 and body['code']=='VISITOR_RATE_LIMITED'

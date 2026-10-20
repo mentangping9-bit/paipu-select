@@ -25,9 +25,9 @@ import threading
 import time
 from contextlib import nullcontext
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
-from service_account import ServiceAccount, SessionVault
+from service_account import ServiceAccount, SessionVault, SlotVault, AccountPool, AccountsCooling
 from postgres_vault import PostgresVault, VaultBusy, VaultCorrupt, VaultUnavailable
-from replay_admission import ReplayAdmission, ReplayLimited
+from replay_admission import ReplayAdmission, ReplayLimited, ReplayQueue
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -105,8 +105,8 @@ auth_attempts: dict[str, list[float]] = {}
 lock = threading.RLock()
 
 
-def configure_service_account():
-    email = os.getenv('PAIPU_SERVICE_EMAIL', '').strip().lower()
+def configure_service_account(slot=1):
+    email = os.getenv('PAIPU_SERVICE_EMAIL' + (f'_{slot}' if slot > 1 else ''), '').strip().lower()
     region = os.getenv('PAIPU_SERVICE_REGION', 'kr').strip().lower()
     if email and (not EMAIL.fullmatch(email) or region not in ('kr', 'jp', 'en')):
         raise ValueError('공용 계정 환경 설정이 올바르지 않습니다.')
@@ -117,10 +117,16 @@ def configure_service_account():
     if bool(path or database) != bool(key):
         raise ValueError('공용 계정 저장소와 암호화 키를 함께 설정해야 합니다.')
     vault = PostgresVault(database, key) if database else SessionVault(path, key, PUBLIC) if path else None
+    if database:
+        vault = SlotVault(vault, slot)
+    if slot > 1 and not database:
+        raise ValueError('추가 조회 계정은 암호화된 DB 저장소가 필요합니다.')
     return ServiceAccount(email, region, Session, vault)
 
 
 service_account = configure_service_account()
+service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in (2,3)
+                          if os.getenv(f'PAIPU_SERVICE_EMAIL_{slot}')])
 
 
 def extract_share_url(text: str) -> str:
@@ -214,18 +220,19 @@ def _throttle(key: str, limit: int = 4, duration: int = 900):
         marks.append(now)
 
 
-def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
+def fetch_from_mahjongsoul(text: str, session: Session, account=None) -> dict:
+    account = account or service_account
     _converter()
     from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
     from paipu_vendor.mahjong_url_parser.sources.yostar import YostarSession
     from regional_auth import regional_client
     from majsoul_client import fetch_record
     reference = parse_replay_url(extract_share_url(text))
-    shared = service_account.owns(session)
+    shared = account.owns(session)
     if not session.operation.acquire(timeout=5 if shared else 0):
         raise ValueError("같은 계정의 패보를 조회하고 있습니다. 완료 후 다시 시도해 주세요.")
     async def work():
-        if shared and not service_account.owns(session):
+        if shared and not account.owns(session):
             raise ValueError('공용 계정이 갱신되었습니다. 다시 조회해 주세요.')
         fresh = bool(session.fresh_token_at and time.monotonic() - session.fresh_token_at < 300)
         if fresh:
@@ -236,21 +243,21 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
         with lock:
             session.uid, session.token, session.device_id = sdk.uid, sdk.token, sdk.device_id
             session.fresh_token_at = 0
-        if service_account.owns(session):
-            service_account.save(session)
+        if account.owns(session):
+            account.save(session)
         payload = await fetch_record(reference.replay_id, sdk, session.region)
         with lock:
             session.game_verified = True
         return check_tenhou(payload)
     try:
-        with service_account.vault_lock() if shared else nullcontext():
+        with account.vault_lock() if shared else nullcontext():
             if shared:
                 try:
-                    service_account.restore()
+                    account.restore()
                 except (VaultUnavailable, VaultCorrupt):
-                    service_account.storage_error = True
+                    account.storage_error = True
                     raise
-                if not service_account.owns(session) or not session.token:
+                if not account.owns(session) or not session.token:
                     from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
                     raise AuthenticationRequired(session.region)
             try:
@@ -259,7 +266,7 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
                 if type(exc).__name__ == 'VerificationCodeRequired':
                     # Still under both locks: don't erase a newer token saved
                     # by another deployment after this request releases them.
-                    service_account.invalidate(session)
+                    account.invalidate(session)
                     session.uid, session.token, session.game_verified = '', '', False
                 raise
     finally:
@@ -267,6 +274,9 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
 
 
 def public_fetch_error(error: Exception) -> tuple[int, dict]:
+    if isinstance(error, AccountsCooling):
+        return 429, {'code':'UPSTREAM_REPLAY_LIMITED', 'retry_after':error.retry_after,
+                     'error':'조회 계정이 쉬는 중입니다. 대기 후 다시 시도해 주세요.'}
     if type(error).__name__ == 'YostarApiError':
         return 502, {'code': 'SDK_REFRESH_REJECTED', 'server_code': error.code,
                      'error': 'Yostar가 저장된 세션의 자동 인증을 거부했습니다. 인증 정보는 보존했습니다. 잠시 후 다시 시도하고, 계속 실패하면 운영자 설정에서 이메일 재인증해 주세요.'}
@@ -314,6 +324,8 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
     return 502, {'code':'REPLAY_FETCH_FAILED',
                  'error':f'패보 조회에 실패했습니다 (유형 {type(error).__name__}). 서버 로그의 오류 분류를 확인해 주세요.'}
 
+
+replay_queue = ReplayQueue(replay_admission, public_fetch_error)
 
 class Handler(SimpleHTTPRequestHandler):
     def setup(self):
@@ -440,11 +452,19 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_HEAD()
 
     def do_GET(self):
+        if urlsplit(self.path).path == '/api/convert/status':
+            ticket = parse_qs(urlsplit(self.path).query).get('job', [''])[0]
+            if not re.fullmatch(r'[A-Za-z0-9_-]{32}', ticket):
+                return self.json_reply(404, {'code':'REPLAY_QUEUE_EXPIRED', 'error':'없는 대기 요청입니다.'})
+            status, data = replay_queue.status(ticket, self._visitor())
+            headers = {'Retry-After':data['retry_after']} if 'retry_after' in data else None
+            return self.json_reply(status, data, headers=headers)
         if urlsplit(self.path).path == '/api/health':
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.2.2',
+                                  'version': '3.3.0',
+                                  'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
                                   'resolved_versions': version_status(),
@@ -458,7 +478,7 @@ class Handler(SimpleHTTPRequestHandler):
                                   'region': s.region if s and s.uid else 'kr',
                                   'game_authenticated': bool(s and s.game_verified),
                                   'operator_auth_required': service_account.configured,
-                                  **service_account.status()})
+                                  **service_account.status(), **service_pool.flags()})
             return
         self.path = urlsplit(self.path).path
         if self.path in ('/', '/index.html'):
@@ -497,8 +517,9 @@ class Handler(SimpleHTTPRequestHandler):
                 use_service = body.get('service_account') is True
                 if use_service and not service_account.configured:
                     raise ValueError('공용 계정이 설정되지 않았습니다.')
-                email = service_account.email if use_service else str(body.get('email', '')).strip().lower()
-                region = service_account.region if use_service else str(body.get('region', 'kr')).lower()
+                selected_account = service_pool.registration_account(body.get('account_slot', 1)) if use_service else service_account
+                email = selected_account.email if use_service else str(body.get('email', '')).strip().lower()
+                region = selected_account.region if use_service else str(body.get('region', 'kr')).lower()
                 if region not in ('kr','jp','en'):
                     raise ValueError('인증 지역은 한국/일본/영문 중 선택해 주세요.')
                 if not EMAIL.fullmatch(email) or len(email) > 254:
@@ -533,17 +554,19 @@ class Handler(SimpleHTTPRequestHandler):
                 _, host = parse_url(url)
                 if host in ('game.maj-soul.com', 'game.maj-soul.net'):
                     raise ValueError('중국 서버 링크는 별도의 중국 서버 계정 인증이 필요합니다.')
-                s = service_account.ready_session() or s
+                s = next((a.ready_session() for a in service_pool.accounts if a.status()['shared_ready']), None) or s
+                # Preserve primary restore-on-demand behavior after DB recovery.
+                s = s or service_account.ready_session()
                 if not s or not s.uid or not s.token:
                     message = ('공용 조회 계정의 최초 인증이 필요합니다. 운영자 설정 화면에서 인증해 주세요.'
                                if service_account.configured else '먼저 Yostar 이메일 인증을 완료해 주세요.')
                     return self.json_reply(401, {'error': message, 'needs_auth': True})
-                if service_account.owns(s):
+                if service_pool.owner(s):
                     from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
                     key = (s.region, parse_replay_url(url).replay_id)
-                    result, cache = replay_admission.run(key, self._visitor(),
-                                                        lambda: fetch_from_mahjongsoul(url, s))
-                    return self.json_reply(200, result, headers={'X-Paipu-Cache':cache})
+                    status, result, cache = replay_queue.submit(key, self._visitor(),
+                                                        lambda: service_pool.fetch(url, fetch_from_mahjongsoul))
+                    return self.json_reply(status, result, headers={'X-Paipu-Cache':cache})
                 result = fetch_from_mahjongsoul(url, s)
                 return self.json_reply(200, result)
             if not s:
@@ -559,13 +582,14 @@ class Handler(SimpleHTTPRequestHandler):
                 _converter()
                 from regional_auth import regional_client
                 client = regional_client(s.region, s.device_id)
-                with service_account.registration(s) as shared_registration:
+                selected_account = next((a for a in service_pool.accounts if a.email == s.email and a.region == s.region), service_account)
+                with selected_account.registration(s) as shared_registration:
                     verified = asyncio.run(asyncio.wait_for(client.exchange_email_code(s.email, code), timeout=50))
                     with lock:
                         s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
                         s.fresh_token_at = time.monotonic()
                         s.game_verified = False
-                    enrolled = service_account.enroll(s, registered=True) if shared_registration else False
+                    enrolled = selected_account.enroll(s, registered=True) if shared_registration else False
                 return self.json_reply(200, {'ok': True, 'authenticated': True,
                                              'shared_enrolled': enrolled}, sid=sid)
             if action == '/api/auth/logout':

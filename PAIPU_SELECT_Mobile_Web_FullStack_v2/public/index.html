@@ -30,6 +30,7 @@
           <option value="en">글로벌 영어 (US/EN)</option>
         </select>
         <div id="operatorAccess" hidden><label for="operatorKeyInput" class="field-label">운영자 인증키</label><div class="auth-fields"><input id="operatorKeyInput" type="password" autocomplete="off" spellcheck="false" maxlength="128" placeholder="운영자 인증키"></div><p class="small auth-info">운영자만 계정 인증 설정을 변경할 수 있습니다. 인증키는 저장하지 않습니다.</p></div>
+        <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><p id="accountSlotStatus" class="hint"></p></div>
         <div id="authLoggedOut">
           <div id="personalEmailFields"><label for="emailInput" class="field-label">Yostar 로그인 이메일</label><div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div></div>
           <button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button>
@@ -39,6 +40,7 @@
         <p class="small auth-info" id="authInfo">Yostar 공식 인증 메일을 사용합니다. 비밀번호는 요구하지 않으며 개인 로그인 세션은 서버 메모리에서 2시간 유지됩니다.</p>
       </div>
       <button type="button" id="convertUrlBtn" class="btn primary full">패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span></button>
+      <div id="queuePanel" class="notice" role="status" aria-live="polite" hidden><strong id="queueTitle"></strong><p id="queueDetail"></p></div>
       <div id="backendInfo" class="notice" hidden><strong>연결 오류</strong><p id="backendDetail"></p></div>
       </div>
       <div id="fileMode" class="input-content" hidden><label id="dropzone" for="jsonInput" tabindex="0"><span class="upload-icon">↥</span><b>JSON 파일 선택</b><small>파일을 누르거나 이곳에 끌어 놓으세요</small><span class="filetypes">.json / .txt / 천봉 URL 목록</span></label><input id="jsonInput" type="file" accept=".json,.txt,.jsonl,application/json,text/plain" hidden><p class="hint">빅코치에서 받은 JSON 또는 천봉 형식의 JSON이 지원됩니다. 업로드한 파일은 외부로 전송되지 않습니다.</p></div>
