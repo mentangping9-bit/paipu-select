@@ -194,3 +194,20 @@ def test_failed_game_account_is_skipped_and_secondary_profiles_survive():
     assert owners[0].unavailable_reason=='account_unbound'
     assert accounts(vault)[0].unavailable_reason=='account_unbound'
     assert pool.fetch('replay',lambda t,s,a:a.email)==owners[1].email
+
+
+def test_region_change_requires_new_auth_and_preserves_old_region_and_other_slots():
+    vault=MemoryVault();owners=accounts(vault)
+    for a in owners:enroll(a)
+    owners[1].rate_limit_count=1;owners[1].cooldown_until=1600
+    owners[1].save(owners[1].session)
+    jp=ServiceAccount(owners[1].email,'jp',Session,SlotVault(vault,2,'jp'))
+    assert jp.ready_session() is None and not jp.storage_error
+    jp.enroll(Session(0,0,email=jp.email,region='jp',uid='jp-user',token='jp-secret',device_id='jp-device'))
+    assert ServiceAccount(jp.email,'jp',Session,SlotVault(vault,2,'jp')).session.token=='jp-secret'
+    kr=ServiceAccount(jp.email,'kr',Session,SlotVault(vault,2,'kr'))
+    assert kr.session.token=='secret' and kr.cooldown_until==1600 and kr.rate_limit_count==1
+    assert ServiceAccount(owners[0].email,'kr',Session,SlotVault(vault,1,'kr')).session.token=='secret'
+    assert ServiceAccount(owners[2].email,'kr',Session,SlotVault(vault,3,'kr')).session.token=='secret'
+    kr.session.token='kr-rotated';kr.save(kr.session)
+    assert ServiceAccount(jp.email,'jp',Session,SlotVault(vault,2,'jp')).session.token=='jp-secret'

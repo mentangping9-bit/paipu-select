@@ -107,7 +107,8 @@ lock = threading.RLock()
 
 def configure_service_account(slot=1):
     email = os.getenv('PAIPU_SERVICE_EMAIL' + (f'_{slot}' if slot > 1 else ''), '').strip().lower()
-    region = os.getenv('PAIPU_SERVICE_REGION', 'kr').strip().lower()
+    region = os.getenv('PAIPU_SERVICE_REGION' + (f'_{slot}' if slot > 1 else ''),
+                       os.getenv('PAIPU_SERVICE_REGION', 'kr')).strip().lower()
     if email and (not EMAIL.fullmatch(email) or region not in ('kr', 'jp', 'en')):
         raise ValueError('공용 계정 환경 설정이 올바르지 않습니다.')
     path, key = os.getenv('PAIPU_ACCOUNT_FILE', ''), os.getenv('PAIPU_ACCOUNT_KEY', '')
@@ -118,7 +119,7 @@ def configure_service_account(slot=1):
         raise ValueError('공용 계정 저장소와 암호화 키를 함께 설정해야 합니다.')
     vault = PostgresVault(database, key) if database else SessionVault(path, key, PUBLIC) if path else None
     if database:
-        vault = SlotVault(vault, slot)
+        vault = SlotVault(vault, slot, region)
     if slot > 1 and not database:
         raise ValueError('추가 조회 계정은 암호화된 DB 저장소가 필요합니다.')
     return ServiceAccount(email, region, Session, vault)
@@ -467,7 +468,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.3.1',
+                                  'version': '3.3.2',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
@@ -570,7 +571,7 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.json_reply(401, {'error': message, 'needs_auth': True})
                 if service_pool.owner(s):
                     from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
-                    key = (s.region, parse_replay_url(url).replay_id)
+                    key = ('international', parse_replay_url(url).replay_id)
                     status, result, cache = replay_queue.submit(key, self._visitor(),
                                                         lambda: service_pool.fetch(url, fetch_from_mahjongsoul))
                     return self.json_reply(status, result, headers={'X-Paipu-Cache':cache})

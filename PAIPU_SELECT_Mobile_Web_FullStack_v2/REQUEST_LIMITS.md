@@ -1,4 +1,4 @@
-# Replay queue and account pool — 3.3.1
+# Replay queue and account pool — 3.3.2
 
 These are application operating settings, not a provider-approved quota or a
 promise that a Mahjong Soul account/IP can never be restricted.
@@ -33,8 +33,8 @@ and alternate official hosts do not force extra upstream requests.
 
 Up to three explicitly configured and officially authenticated accounts are
 used in round-robin order. PAIPU_SERVICE_EMAIL is the existing primary, and
-PAIPU_SERVICE_EMAIL_2/_3 enable additional slots using the existing KR/JP/EN
-account region setting. The operator selects the slot before requesting and
+PAIPU_SERVICE_EMAIL_2/_3 enable additional slots. PAIPU_SERVICE_REGION_2/_3 select each slot's own
+KR/JP/EN authentication region independently from the primary. The operator selects the slot before requesting and
 verifying its first email OTP. Slot mutation remains protected by the operator
 key. An email address alone does not authenticate an account.
 
@@ -83,3 +83,10 @@ without shortening the minimum shared pause after 540. The logo is a keyboard
 accessible home link. Queue processing exposes only the current slot number;
 completed polling carries that job's slot number in X-Paipu-Account-Slot for
 verification without leaking an email or provider token.
+
+Changing a slot's authentication region requires an OTP in the new region.
+Region-specific SDK profiles are retained separately inside the same encrypted
+slot. KR credentials are never relabeled or reused as JP/EN credentials. The
+primary profile and other slots are preserved during a region correction.
+International replay cache identity is independent of the selected account
+region, so rotation between KR and JP does not fetch the same replay again.

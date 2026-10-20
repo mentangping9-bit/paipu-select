@@ -207,15 +207,14 @@ class SlotVault:
     Primary fields retain their legacy representation. Every merge occurs under
     the same advisory lock; replacing primary tokens preserves secondary slots.
     """
-    def __init__(self, vault, slot):
-        self.vault, self.slot = vault, str(slot)
+    def __init__(self, vault, slot, region=None):
+        self.vault, self.slot, self.region = vault, str(slot), region
         self.storage = vault.storage
 
     def locked(self):
         return self.vault.locked()
 
-    def load(self):
-        saved = self.vault.load()
+    def _slot(self, saved):
         if not saved:
             return None
         if self.slot == '1':
@@ -228,17 +227,40 @@ class SlotVault:
             raise VaultCorrupt('저장된 조회 계정 정보가 올바르지 않습니다.')
         return value
 
+    def load(self):
+        value = self._slot(self.vault.load())
+        if value is None or self.region is None or value.get('region') == self.region:
+            return value
+        profiles = value.get('regional_profiles', {})
+        if not isinstance(profiles, dict) or any(r not in ('kr','jp','en') for r in profiles):
+            raise VaultCorrupt('저장된 인증 지역 정보가 올바르지 않습니다.')
+        profile = profiles.get(self.region)
+        if profile is not None and not isinstance(profile, dict):
+            raise VaultCorrupt('저장된 인증 지역 정보가 올바르지 않습니다.')
+        # A valid token for KR must never be silently used as a JP/EN token.
+        return profile
+
     def save(self, value):
         with self.vault.locked():
             previous = self.vault.load() or {'version':1}
+            prior_slot = self._slot(previous)
+            merged_slot = dict(value)
+            if prior_slot:
+                profiles = dict(prior_slot.get('regional_profiles', {}))
+                if prior_slot.get('region') != value.get('region'):
+                    profiles[prior_slot['region']] = {k:v for k,v in prior_slot.items()
+                        if k not in ('regional_profiles','accounts')}
+                profiles.pop(value.get('region'), None)
+                if profiles:
+                    merged_slot['regional_profiles'] = profiles
             if self.slot == '1':
-                merged = dict(value)
+                merged = merged_slot
                 if previous.get('accounts'):
                     merged['accounts'] = previous['accounts']
             else:
                 merged = dict(previous)
                 slots = dict(merged.get('accounts', {}))
-                slots[self.slot] = value
+                slots[self.slot] = merged_slot
                 merged['accounts'] = slots
             self.vault.save(merged)
 
@@ -277,7 +299,7 @@ class AccountPool:
         states = [account.status() for account in self.accounts]
         return {'shared_ready':any(s['shared_ready'] for s in states),
                 'shared_game_authenticated':any(s['shared_game_authenticated'] for s in states),
-                'shared_accounts':[{'slot':i+1, 'ready':s['shared_ready'],
+                'shared_accounts':[{'slot':i+1, 'region':self.accounts[i].region, 'ready':s['shared_ready'],
                     'cooling':self.accounts[i].cooldown_until > self.clock()}
                     for i,s in enumerate(states)]}
 
@@ -288,7 +310,7 @@ class AccountPool:
             return {'active_slot':self.active_slot, 'last_used_slot':self.last_slot,
                     'last_success_slot':self.last_success_slot,
                     'next_slot':next_item[0]+1 if next_item else None,
-                    'accounts':[{'slot':i+1, 'email':a.email,
+                    'accounts':[{'slot':i+1, 'email':a.email, 'region':a.region,
                         'authenticated':a.status()['shared_ready'],
                         'cooldown_seconds':max(0,int(a.cooldown_until-self.clock())+1),
                         'rate_limit_count':a.rate_limit_count,

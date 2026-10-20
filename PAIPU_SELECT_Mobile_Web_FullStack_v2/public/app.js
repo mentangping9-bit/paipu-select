@@ -166,7 +166,7 @@ function renderAuth(data){
       $('accountSlot').replaceChildren();
       for(const account of data.shared_accounts||[{slot:1,ready:sharedReady}]){
         const option=document.createElement('option');option.value=String(account.slot);
-        option.textContent=t('조회 계정 {n}',{n:account.slot})+' · '+(account.ready?t('연결됨'):t('최초 인증 필요'))+(account.cooling?' · '+t('일시 휴식 중'):'');
+        option.textContent=t('조회 계정 {n}',{n:account.slot})+' · '+String(account.region||'kr').toUpperCase()+' · '+(account.ready?t('연결됨'):t('최초 인증 필요'))+(account.cooling?' · '+t('일시 휴식 중'):'');
         $('accountSlot').append(option);
       }
       if([...$('accountSlot').options].some(o=>o.value===selected))$('accountSlot').value=selected;
@@ -175,6 +175,7 @@ function renderAuth(data){
     $('authLoggedIn').hidden=!authenticated||serviceSetup;
     $('signedInEmail').textContent=(data.email||t('로그인됨'))+' · '+String(data.region||'kr').toUpperCase();
     if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=serviceSetup;}
+    if(serviceSetup){const selected=(data.shared_accounts||[]).find(a=>String(a.slot)===$('accountSlot').value);if(selected)$('regionSelect').value=selected.region||'kr';}
     $('authStatus').textContent=operatorMode&&data.shared_configured?(sharedReady?t('공용 조회 계정 연결됨'):t('공용 계정 최초 인증 필요')):authenticated?(data.game_authenticated?t('게임 로그인 및 패보 조회 확인됨'):t('이메일 인증 완료 · 게임 로그인은 조회 시 확인')):t('작혼 패보를 읽기 위한 이메일 인증');
 }
 function authError(e){alertError(i18n.error(e.message));$('authPanel').scrollIntoView({behavior:'smooth',block:'center'});}
@@ -199,7 +200,7 @@ function renderAccounts(data){
   const state=!a.authenticated?t('최초 인증 필요'):a.unavailable_reason?t('게임 로그인 확인 필요'):
    a.cooldown_seconds>0?t('휴식 {n}초',{n:a.cooldown_seconds}):
    a.rate_limit_count>0?t('다른 정상 계정 우선'):a.last_success_at?t('패보 조회 성공 확인'):t('인증 완료 · 조회 확인 전');
-  lines.push(t('조회 계정 {n}',{n:a.slot})+' · '+a.email+' · '+state);
+  lines.push(t('조회 계정 {n}',{n:a.slot})+' · '+a.email+' · '+a.region.toUpperCase()+' · '+state);
  }
  $('accountSlotStatus').textContent=lines.join('\n');
 }
@@ -208,7 +209,7 @@ async function refreshAccounts(){
  try{renderAccounts(await api('/api/auth/accounts'));}catch(e){authError(e);}
 }
 $('accountStatusBtn').onclick=refreshAccounts;
-$('accountSlot').onchange=()=>{$('verifyRow').hidden=true;$('codeInput').value='';clearError();};
+$('accountSlot').onchange=()=>{$('verifyRow').hidden=true;$('codeInput').value='';clearError();const selected=(authSnapshot?.shared_accounts||[]).find(a=>String(a.slot)===$('accountSlot').value);if(selected)$('regionSelect').value=selected.region||'kr';};
 $('verifyBtn').onclick=async()=>{
   const btn=$('verifyBtn');btn.disabled=true;btn.textContent=t('인증 중…');clearError();
   try{
