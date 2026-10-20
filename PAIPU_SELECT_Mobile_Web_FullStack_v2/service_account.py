@@ -65,6 +65,9 @@ class ServiceAccount:
         self.operation = threading.Lock()
         self.storage_error = False
         self.cooldown_until = 0
+        self.rate_limit_count = 0
+        self.last_success_at = 0
+        self.unavailable_reason = ''
         if self.email and vault:
             try:
                 self.restore()
@@ -93,6 +96,12 @@ class ServiceAccount:
                 if not isinstance(cooldown, (int, float)) or not 0 <= cooldown < 100000000000:
                     raise VaultCorrupt('계정 대기 정보 형식이 올바르지 않습니다.')
                 self.cooldown_until = cooldown
+                count = saved.get('rate_limit_count', 1 if cooldown else 0)
+                success = saved.get('last_success_at', 0)
+                reason = saved.get('unavailable_reason', '')
+                if not isinstance(count, int) or not 0 <= count <= 1000 or not isinstance(success, (int,float)) or not 0 <= success < 100000000000 or reason not in ('', 'account_unbound', 'oauth_auth', 'oauth_check', 'oauth_login'):
+                    raise VaultCorrupt('계정 상태 정보 형식이 올바르지 않습니다.')
+                self.rate_limit_count, self.last_success_at, self.unavailable_reason = count, success, reason
                 fields = {k: saved.get(k, '') for k in ('uid', 'token', 'device_id')}
                 if not all(isinstance(v, str) for v in fields.values()) or (
                         bool(fields['uid']) != bool(fields['token'])) or (
@@ -156,6 +165,8 @@ class ServiceAccount:
                                  device_id=session.device_id,
                                  fresh_token_at=session.fresh_token_at)
         s.operation = self.operation
+        # Email authentication must not erase a provider's existing 540 hold.
+        self.unavailable_reason = ''
         self.save(s)
         with self.lock:
             self.session = s
@@ -169,7 +180,9 @@ class ServiceAccount:
         if self.vault:
             self.vault.save({'version': 1, 'email': self.email, 'region': self.region,
                              'uid': session.uid, 'token': session.token,
-                             'device_id': session.device_id, 'cooldown_until': self.cooldown_until})
+                             'device_id': session.device_id, 'cooldown_until': self.cooldown_until,
+                             'rate_limit_count': self.rate_limit_count, 'last_success_at':self.last_success_at,
+                             'unavailable_reason': self.unavailable_reason})
 
     def invalidate(self, session):
         with self.lock:
@@ -241,6 +254,7 @@ class AccountPool:
         self.accounts, self.clock, self.cooldown = accounts, clock, cooldown
         self.cursor = 0
         self.lock = threading.RLock()
+        self.active_slot = self.last_slot = self.last_success_slot = None
 
     def registration_account(self, slot):
         if not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= len(self.accounts):
@@ -250,6 +264,15 @@ class AccountPool:
     def owner(self, session):
         return next((account for account in self.accounts if account.owns(session)), None)
 
+    def eligible(self):
+        eligible = [(i,a) for i,a in enumerate(self.accounts)
+                    if a.status()['shared_ready'] and a.cooldown_until <= self.clock()
+                    and not a.unavailable_reason]
+        # A reauthenticated or recently restarted limited account must not
+        # displace accounts which have no known retrieval limitation.
+        healthy = [(i,a) for i,a in eligible if a.rate_limit_count == 0]
+        return healthy or eligible
+
     def flags(self):
         states = [account.status() for account in self.accounts]
         return {'shared_ready':any(s['shared_ready'] for s in states),
@@ -258,31 +281,69 @@ class AccountPool:
                     'cooling':self.accounts[i].cooldown_until > self.clock()}
                     for i,s in enumerate(states)]}
 
+    def operator_status(self):
+        with self.lock:
+            eligible = self.eligible()
+            next_item = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts)) if eligible else None
+            return {'active_slot':self.active_slot, 'last_used_slot':self.last_slot,
+                    'last_success_slot':self.last_success_slot,
+                    'next_slot':next_item[0]+1 if next_item else None,
+                    'accounts':[{'slot':i+1, 'email':a.email,
+                        'authenticated':a.status()['shared_ready'],
+                        'cooldown_seconds':max(0,int(a.cooldown_until-self.clock())+1),
+                        'rate_limit_count':a.rate_limit_count,
+                        'last_success_at':a.last_success_at,
+                        'unavailable_reason':a.unavailable_reason}
+                        for i,a in enumerate(self.accounts)]}
+
     def fetch(self, text, fetch):
         with self.lock:
-            eligible = [(i,a) for i,a in enumerate(self.accounts)
-                        if a.status()['shared_ready'] and a.cooldown_until <= self.clock()]
+            eligible = self.eligible()
             if not eligible:
-                ready = [a for a in self.accounts if a.status()['shared_ready']]
+                ready = [a for a in self.accounts if a.status()['shared_ready'] and not a.unavailable_reason]
                 if ready:
                     raise AccountsCooling(min(a.cooldown_until for a in ready)-self.clock())
                 from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
                 raise AuthenticationRequired(self.accounts[0].region)
             index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
             self.cursor = (index+1)%len(self.accounts)
+            self.active_slot = self.last_slot = index+1
             session = account.ready_session()
+        print('Replay account slot selected:', index+1)
         try:
-            return fetch(text, session, account)
+            result = fetch(text, session, account)
+            with account.operation, account.vault_lock():
+                account.restore()
+                account.last_success_at = self.clock()
+                account.rate_limit_count, account.cooldown_until, account.unavailable_reason = 0, 0, ''
+                if account.session:
+                    account.session.game_verified = True
+                    account.save(account.session)
+            self.last_success_slot = index+1
+            print('Replay account slot succeeded:', index+1)
+            return result
         except Exception as exc:
-            if getattr(exc, 'stage', None) == 'fetch_record' and getattr(exc, 'code', None) == 540:
-                # Persist the pause across Render restarts. This is a conservative
-                # operating pause, not a claim about the provider's reset period.
+            stage, code = getattr(exc, 'stage', None), getattr(exc, 'code', None)
+            if stage == 'fetch_record' and code == 540:
                 with account.operation, account.vault_lock():
                     account.restore()
-                    account.cooldown_until = max(account.cooldown_until, self.clock()+self.cooldown)
+                    account.rate_limit_count = min(1000, account.rate_limit_count+1)
+                    pause = min(3600, self.cooldown * (3 ** min(account.rate_limit_count-1, 2)))
+                    account.cooldown_until = max(account.cooldown_until, self.clock()+pause)
                     if account.session:
                         account.save(account.session)
-                ready = [a for a in self.accounts if a.status()['shared_ready']]
-                exc.can_retry = any(a.cooldown_until <= self.clock() for a in ready)
+                ready = [a for a in self.accounts if a.status()['shared_ready'] and not a.unavailable_reason]
+                exc.can_retry = bool(self.eligible())
                 exc.retry_after = max(60, int(min(a.cooldown_until for a in ready)-self.clock())+1) if ready else 60
+            elif stage in ('account_unbound','oauth_auth','oauth_check','oauth_login'):
+                with account.operation, account.vault_lock():
+                    account.restore()
+                    account.unavailable_reason = stage
+                    if account.session:
+                        account.save(account.session)
+                exc.can_retry = bool(self.eligible())
+            elif type(exc).__name__ in ('VerificationCodeRequired','AuthenticationRequired'):
+                exc.can_retry = bool(self.eligible())
             raise
+        finally:
+            self.active_slot = None

@@ -47,7 +47,7 @@ let queueSnapshot=null;
 function renderQueue(data){
  queueSnapshot=data;$('queuePanel').hidden=false;
  $('queueTitle').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});
- $('queueDetail').textContent=data.state==='processing'?t('작혼 패보를 가져와 변환하고 있습니다.'):
+ $('queueDetail').textContent=data.state==='processing'?(data.account_slot?t('조회 계정 {n}에서 패보를 가져와 변환하고 있습니다.',{n:data.account_slot}):t('작혼 패보를 가져와 변환하고 있습니다.')):
   (data.cooldown?t('작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.'):
   t('전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.'))+
   (data.wait_seconds>0?' '+t('조회 간격 대기: {n}초 이상',{n:data.wait_seconds}):'');
@@ -187,12 +187,33 @@ $('sendCodeBtn').onclick=async()=>{
   }catch(e){authError(e);}
   finally{btn.disabled=false;btn.textContent=serviceSetup?t('공용 계정 인증 메일 발송'):t('인증 메일 발송');}
 };
+let accountSnapshot=null;
+function renderAccounts(data){
+ accountSnapshot=data;
+ const email=slot=>data.accounts.find(a=>a.slot===slot)?.email||t('없음');
+ const lines=[t('현재 처리 계정: {email}',{email:email(data.active_slot)}),
+  t('최근 조회 계정: {email}',{email:email(data.last_used_slot)}),
+  t('최근 성공 계정: {email}',{email:email(data.last_success_slot)}),
+  t('다음 조회 계정: {email}',{email:email(data.next_slot)})];
+ for(const a of data.accounts){
+  const state=!a.authenticated?t('최초 인증 필요'):a.unavailable_reason?t('게임 로그인 확인 필요'):
+   a.cooldown_seconds>0?t('휴식 {n}초',{n:a.cooldown_seconds}):
+   a.rate_limit_count>0?t('다른 정상 계정 우선'):a.last_success_at?t('패보 조회 성공 확인'):t('인증 완료 · 조회 확인 전');
+  lines.push(t('조회 계정 {n}',{n:a.slot})+' · '+a.email+' · '+state);
+ }
+ $('accountSlotStatus').textContent=lines.join('\n');
+}
+async function refreshAccounts(){
+ if(!serviceSetup)return;
+ try{renderAccounts(await api('/api/auth/accounts'));}catch(e){authError(e);}
+}
+$('accountStatusBtn').onclick=refreshAccounts;
 $('accountSlot').onchange=()=>{$('verifyRow').hidden=true;$('codeInput').value='';clearError();};
 $('verifyBtn').onclick=async()=>{
   const btn=$('verifyBtn');btn.disabled=true;btn.textContent=t('인증 중…');clearError();
   try{
     await api('/api/auth/verify',{code:$('codeInput').value.trim()});
-    $('codeInput').value='';await refreshAuth();toast('인증 성공.');
+    $('codeInput').value='';await refreshAuth();if(serviceSetup)await refreshAccounts();toast('인증 성공.');
     if(!serviceSetup && $('paipuInput').value.trim() && validUrl($('paipuInput').value))await loadFromUrl();
   }catch(e){authError(e);}
   finally{btn.disabled=false;btn.textContent=t('로그인');}
@@ -216,6 +237,7 @@ document.addEventListener('paipu-language-change',()=>{
  if(authSnapshot)renderAuth(authSnapshot);
  updateConvertButton();
  if(queueSnapshot)renderQueue(queueSnapshot);
+ if(accountSnapshot)renderAccounts(accountSnapshot);
  if(!$('verifyBtn').disabled)$('verifyBtn').textContent=t('로그인');
  if(rounds.length){renderRounds();$('matchTitle').textContent=t(latestFile);if(!$('resultPanel').hidden)buildOutput();}
 });

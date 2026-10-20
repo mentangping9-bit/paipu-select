@@ -9,7 +9,7 @@
 <body>
 <div class="site">
   <header class="topbar">
-    <div class="mark"><span class="mark-tile">東</span><span>PAIPU <b>SELECT</b></span></div>
+    <a class="mark" href="/" aria-label="PAIPU SELECT 홈"><span class="mark-tile">東</span><span>PAIPU <b>SELECT</b></span></a>
     <div class="top-actions"><span class="top-pill"><span class="dot"></span> MOBILE WEB</span><label class="language-picker"><span aria-hidden="true">🌐</span><select id="languageSelect" aria-label="Language / 언어 / 言語"><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option></select></label></div>
   </header>
   <main>
@@ -30,7 +30,7 @@
           <option value="en">글로벌 영어 (US/EN)</option>
         </select>
         <div id="operatorAccess" hidden><label for="operatorKeyInput" class="field-label">운영자 인증키</label><div class="auth-fields"><input id="operatorKeyInput" type="password" autocomplete="off" spellcheck="false" maxlength="128" placeholder="운영자 인증키"></div><p class="small auth-info">운영자만 계정 인증 설정을 변경할 수 있습니다. 인증키는 저장하지 않습니다.</p></div>
-        <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><p id="accountSlotStatus" class="hint"></p></div>
+        <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><button id="accountStatusBtn" type="button" class="linkbtn">조회 계정 상태 확인</button><p id="accountSlotStatus" class="hint" aria-live="polite"></p></div>
         <div id="authLoggedOut">
           <div id="personalEmailFields"><label for="emailInput" class="field-label">Yostar 로그인 이메일</label><div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div></div>
           <button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button>

@@ -150,3 +150,47 @@ def test_persistent_540_is_bounded_and_pending_deadline_never_fetches():
     _,expired,_=queue.submit('expire','b',lambda:pytest.fail('expired request must not fetch'))
     advance(queue,now,1920)
     eventually(lambda:queue.status(expired['job'],'b')[0]==408)
+
+
+def test_healthy_accounts_rotate_each_fetch_and_reauth_does_not_clear_540():
+    vault=MemoryVault();owners=accounts(vault)
+    for a in owners:enroll(a)
+    now=[1000.0];pool=AccountPool(owners,clock=lambda:now[0]);seen=[]
+    def ok(text,s,a):seen.append(a.email);return {'log':[]}
+    for _ in range(3):pool.fetch('different replay',ok)
+    assert seen==[a.email for a in owners]
+    with pytest.raises(GameError):
+        pool.fetch('limited',lambda *args:(_ for _ in ()).throw(GameError('fetch_record',540)))
+    assert owners[0].rate_limit_count==1
+    enroll(owners[0])
+    assert owners[0].rate_limit_count==1 and owners[0].cooldown_until==1600
+    now[0]=1601
+    seen.clear()
+    for _ in range(4):pool.fetch('different replay',ok)
+    assert seen==[owners[1].email,owners[2].email]*2
+    restored=AccountPool(accounts(vault),clock=lambda:now[0])
+    assert restored.fetch('another',lambda t,s,a:a.email)==owners[1].email
+    assert 'example.com' not in str(restored.flags())
+    assert restored.operator_status()['accounts'][0]['email']==owners[0].email
+
+
+def test_new_account_wakes_queue_without_shortening_shared_540_pause():
+    now=[0.0];queue=ReplayQueue(ReplayAdmission(clock=lambda:now[0]),public_fetch_error)
+    queue.pause_until=600;queue.provider_pause_until=60
+    queue.account_available()
+    assert queue.pause_until==60
+    now[0]=70;queue.pause_until=600
+    queue.account_available()
+    assert queue.pause_until==70
+
+
+def test_failed_game_account_is_skipped_and_secondary_profiles_survive():
+    vault=MemoryVault();owners=accounts(vault)
+    for a in owners:enroll(a)
+    pool=AccountPool(owners)
+    with pytest.raises(GameError) as error:
+        pool.fetch('replay',lambda *args:(_ for _ in ()).throw(GameError('account_unbound',0)))
+    assert error.value.can_retry
+    assert owners[0].unavailable_reason=='account_unbound'
+    assert accounts(vault)[0].unavailable_reason=='account_unbound'
+    assert pool.fetch('replay',lambda t,s,a:a.email)==owners[1].email

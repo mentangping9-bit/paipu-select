@@ -147,11 +147,13 @@ class ReplayQueue:
     shared cooldown, with at most three provider attempts.
     """
     def __init__(self, admission, error_mapper, *, spacing=6, cooldown=60,
-                 max_pending=20, ttl=600, result_bytes=8*1024*1024, max_wait=1800):
+                 max_pending=20, ttl=600, result_bytes=8*1024*1024, max_wait=1800, metadata=None):
         self.admission, self.error_mapper = admission, error_mapper
         self.spacing, self.cooldown = spacing, cooldown
         self.max_pending, self.ttl, self.result_bytes = max_pending, ttl, result_bytes
         self.max_wait = max_wait
+        self.metadata = metadata or (lambda:{})
+        self.provider_pause_until = 0
         self.condition = threading.Condition(admission.lock)
         self.pending = deque()
         self.jobs = OrderedDict()
@@ -208,7 +210,8 @@ class ReplayQueue:
         return 202, {'job':job['watchers'][visitor], 'state':job['state'],
                      'position':position, 'wait_seconds':seconds,
                      'cooldown':self.pause_until > self.admission.clock(),
-                     'poll_after':2, 'limit_per_minute':self.admission.global_per_minute}
+                     'poll_after':2, 'limit_per_minute':self.admission.global_per_minute,
+                     **(self.metadata() if job['state']=='processing' else {})}
 
     def submit(self, key, visitor, fetch):
         with self.condition:
@@ -259,6 +262,20 @@ class ReplayQueue:
                              'error':'대기 요청이 만료되었거나 서버가 재시작됐습니다. 다시 접수해 주세요.'}
             return self._view(pair[0], visitor)
 
+    def account_available(self):
+        with self.condition:
+            # A newly authenticated backup can reduce the all-accounts-resting
+            # wait, but never the minimum shared pause after a provider 540.
+            self.pause_until = min(self.pause_until, max(self.admission.clock(), self.provider_pause_until))
+            self.condition.notify_all()
+
+    def ticket_metadata(self, ticket, visitor):
+        with self.condition:
+            pair = self.tickets.get(ticket)
+            if pair is None or pair[1] != visitor:
+                return {}
+            return dict(self.jobs[pair[0]].get('metadata', {}))
+
     def _work(self):
         while True:
             with self.condition:
@@ -299,11 +316,14 @@ class ReplayQueue:
                 status, error = self.error_mapper(exc)
                 if getattr(exc, 'stage', None) == 'fetch_record' and getattr(exc, 'code', None) == 540:
                     with self.condition:
+                        self.provider_pause_until = self.admission.clock()+self.cooldown
                         self.pause_until = self.admission.clock()+max(self.cooldown, getattr(exc, 'retry_after', 0))
                     retry = job['attempts'] < 3
                     status, error = 429, {'code':'UPSTREAM_REPLAY_LIMITED',
                         'server_code':540, 'retry_after':math.ceil(max(self.cooldown, getattr(exc, 'retry_after', 0))),
                         'error':'작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.'}
+                elif getattr(exc, 'can_retry', False) and job['attempts'] < 3:
+                    retry = True
                 elif type(exc).__name__ == 'AccountsCooling':
                     with self.condition:
                         self.pause_until = self.admission.clock()+exc.retry_after
@@ -319,6 +339,7 @@ class ReplayQueue:
                     self.condition.notify_all()
                     continue
                 job.pop('fetch', None)
+                job['metadata'] = self.metadata()
                 job['state'], job['finished'] = 'done', self.admission.clock()
                 if raw is not None:
                     job['raw'] = raw

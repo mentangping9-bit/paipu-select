@@ -1,4 +1,4 @@
-# Replay queue and account pool — 3.3.0
+# Replay queue and account pool — 3.3.1
 
 These are application operating settings, not a provider-approved quota or a
 promise that a Mahjong Soul account/IP can never be restricted.
@@ -44,7 +44,12 @@ profiles. Existing primary data loads without a migration or credential reset.
 No email/token is committed. Additional slots require the encrypted DB backend.
 
 A fetch-record 540 means the provider's replay retrieval limit was exceeded.
-The affected account pauses for 10 minutes, persisted with its encrypted session.
+The affected account pauses for 10 minutes, then 30 and at most 60 minutes on
+repeated 540 responses. Cooldown and limitation history persist with the encrypted
+session. Reauthentication does not erase them. Accounts with no known limitation
+rotate on every uncached request and take priority over previously limited ones,
+even after the latter's cooldown expires. A limited account is reconsidered when
+no healthy eligible account remains. A successful fetch clears its limitation history.
 The entire queue pauses at least 60 seconds before a retry, even if another
 account is ready. If all authenticated accounts are resting, the queue waits
 until the earliest account is eligible. The same accepted job can try at most
@@ -67,3 +72,14 @@ expiry, memory bounds, primary/secondary token preservation and restored
 cooldowns. Live verification must not generate 11 upstream calls merely to test
 the limiter. Actual login for additional accounts is unverified until their
 first email authentication and a real game-server fetch have completed.
+
+## Operator account status and navigation
+
+POST /api/auth/accounts requires the existing operator key and returns configured
+email addresses, current/last/next slot, last-success time and cooldown status.
+Anonymous auth/status and per-job queue polling never disclose account emails.
+A successful first enrollment wakes the queue if an eligible backup exists,
+without shortening the minimum shared pause after 540. The logo is a keyboard
+accessible home link. Queue processing exposes only the current slot number;
+completed polling carries that job's slot number in X-Paipu-Account-Slot for
+verification without leaking an email or provider token.

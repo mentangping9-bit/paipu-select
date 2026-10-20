@@ -11,7 +11,7 @@ import pytest
 
 import regional_auth
 import server
-from service_account import ServiceAccount
+from service_account import ServiceAccount, AccountPool
 
 KEY = 'test-only-operator-key-with-32-or-more-characters'
 URL = 'https://game.mahjongsoul.com/?paipu=261020-f5be3e18-149e-4a08-9060-9d304e07f891_a460096575'
@@ -51,12 +51,17 @@ def test_operator_management_is_protected_without_disabling_public_replay(endpoi
             regional_auth, 'regional_client') as provider, patch.object(server, 'fetch_from_mahjongsoul', return_value={'log':[]}) as fetch:
         for path, data in [('/api/auth/send-code', {'service_account':True}),
                            ('/api/auth/send-code', {'email':'owner@example.com'}),
-                           ('/api/auth/verify', {'code':'123456'}), ('/api/auth/logout', {})]:
+                           ('/api/auth/verify', {'code':'123456'}), ('/api/auth/logout', {}), ('/api/auth/accounts', {})]:
             for candidate in ['', 'wrong-key']:
                 status, _, raw = request(endpoint, path, data, {'X-Paipu-Operator-Key':candidate})
                 assert status == 403
                 assert json.loads(raw)['code'] == 'OPERATOR_AUTH_REQUIRED'
                 assert KEY.encode() not in raw and b'secret-token' not in raw
+        with patch.object(server, 'service_pool', AccountPool([owner])):
+            status, _, raw = request(endpoint, '/api/auth/accounts', {}, {'X-Paipu-Operator-Key':KEY})
+            assert status == 200 and json.loads(raw)['accounts'][0]['email'] == owner.email
+            assert b'secret-token' not in raw and b'secret-device' not in raw and b'secret-user' not in raw
+            assert owner.email.encode() not in request(endpoint, '/api/auth/status')[2]
         provider.assert_not_called()
         status, _, _ = request(endpoint, '/api/convert', {'url':URL})
         assert status == 200

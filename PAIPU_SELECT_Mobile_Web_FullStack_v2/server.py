@@ -325,7 +325,8 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
                  'error':f'패보 조회에 실패했습니다 (유형 {type(error).__name__}). 서버 로그의 오류 분류를 확인해 주세요.'}
 
 
-replay_queue = ReplayQueue(replay_admission, public_fetch_error)
+replay_queue = ReplayQueue(replay_admission, public_fetch_error,
+                           metadata=lambda:{'account_slot':service_pool.active_slot or service_pool.last_slot})
 
 class Handler(SimpleHTTPRequestHandler):
     def setup(self):
@@ -457,13 +458,16 @@ class Handler(SimpleHTTPRequestHandler):
             if not re.fullmatch(r'[A-Za-z0-9_-]{32}', ticket):
                 return self.json_reply(404, {'code':'REPLAY_QUEUE_EXPIRED', 'error':'없는 대기 요청입니다.'})
             status, data = replay_queue.status(ticket, self._visitor())
-            headers = {'Retry-After':data['retry_after']} if 'retry_after' in data else None
+            headers = {'Retry-After':data['retry_after']} if 'retry_after' in data else {}
+            slot = replay_queue.ticket_metadata(ticket, self._visitor()).get('account_slot')
+            if slot:
+                headers['X-Paipu-Account-Slot'] = slot
             return self.json_reply(status, data, headers=headers)
         if urlsplit(self.path).path == '/api/health':
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.3.0',
+                                  'version': '3.3.1',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
@@ -506,13 +510,16 @@ class Handler(SimpleHTTPRequestHandler):
         action = urlsplit(self.path).path
         s = None
         held_operation = None
-        if action not in ('/api/auth/send-code', '/api/auth/verify', '/api/auth/logout', '/api/convert'):
+        if action not in ('/api/auth/send-code', '/api/auth/verify', '/api/auth/logout', '/api/auth/accounts', '/api/convert'):
             return self.json_reply(404, {'error': '없는 API입니다.'})
         try:
             body = self._read_request()
             if action.startswith('/api/auth/') and not self._operator_authorized():
                 return self.json_reply(403, {'code': 'OPERATOR_AUTH_REQUIRED',
                     'error': '공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.'})
+            if action == '/api/auth/accounts':
+                return self.json_reply(200, {**service_pool.operator_status(),
+                    'limit_per_minute':10, 'queue_enabled':True})
             if action == '/api/auth/send-code':
                 use_service = body.get('service_account') is True
                 if use_service and not service_account.configured:
@@ -590,6 +597,8 @@ class Handler(SimpleHTTPRequestHandler):
                         s.fresh_token_at = time.monotonic()
                         s.game_verified = False
                     enrolled = selected_account.enroll(s, registered=True) if shared_registration else False
+                if enrolled and service_pool.eligible():
+                    replay_queue.account_available()
                 return self.json_reply(200, {'ok': True, 'authenticated': True,
                                              'shared_enrolled': enrolled}, sid=sid)
             if action == '/api/auth/logout':
