@@ -126,7 +126,7 @@ def configure_service_account(slot=1):
 
 
 service_account = configure_service_account()
-service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in (2,3)
+service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in range(2, 10)
                           if os.getenv(f'PAIPU_SERVICE_EMAIL_{slot}')])
 
 
@@ -499,7 +499,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.4.0',
+                                  'version': '3.4.1',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,

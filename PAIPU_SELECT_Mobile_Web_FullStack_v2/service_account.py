@@ -202,7 +202,7 @@ class ServiceAccount:
 
 
 class SlotVault:
-    """Keep up to three encrypted profiles in the existing restricted DB row.
+    """Keep up to nine encrypted profiles in the existing restricted DB row.
 
     Primary fields retain their legacy representation. Every merge occurs under
     the same advisory lock; replacing primary tokens preserves secondary slots.
@@ -220,7 +220,7 @@ class SlotVault:
         if self.slot == '1':
             return saved if 'email' in saved else None
         slots = saved.get('accounts', {})
-        if not isinstance(slots, dict) or any(key not in ('2','3') for key in slots):
+        if not isinstance(slots, dict) or any(key not in {str(i) for i in range(2, 10)} for key in slots):
             raise VaultCorrupt('저장된 조회 계정 슬롯이 올바르지 않습니다.')
         value = slots.get(self.slot)
         if value is not None and not isinstance(value, dict):

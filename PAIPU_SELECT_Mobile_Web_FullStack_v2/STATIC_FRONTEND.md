@@ -30,3 +30,10 @@ operator preflights are covered by HTTP tests.
 The original backend URL still has Render's cold-start behavior. First-page
 instant loading requires using the new static entry URL. Actual link conversion
 can still wait for the free backend to start. Operator setup stays on the backend.
+
+Operator entry is hidden from the normal page. Hold the PAIPU SELECT logo for
+2 seconds (mobile/desktop), or press Alt+Shift+A, to open the backend setup page.
+A normal logo click still returns home. This shortcut is not authorization:
+all operator mutations continue to require the server's operator key.
+The encrypted vault supports slots 1–9. Additional slot emails and login
+regions are configured only in Render, never embedded in static assets.

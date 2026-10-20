@@ -27,6 +27,15 @@ function setReplayCooldown(data,response){
 let rounds = []; let chosen = new Set(); let mode = 'url'; let latestFile = ''; let busy = false;
 let koreanServerReady = null; let authenticated = false; let sharedReady = false; let serviceSetup = false;
 const operatorMode = new URL(location.href).searchParams.get('setup') === '1';
+// Hidden entry is navigation only; server-side operator authorization is unchanged.
+const openOperator=()=>location.assign((backend.origin||location.origin)+'/?setup=1');
+document.addEventListener('keydown',event=>{if(event.altKey&&event.shiftKey&&event.code==='KeyA'){event.preventDefault();openOperator();}});
+const brand=document.querySelector('.mark');
+let holdTimer=0;
+const cancelHold=()=>{clearTimeout(holdTimer);holdTimer=0;};
+brand.addEventListener('pointerdown',event=>{if(event.button!==0)return;cancelHold();holdTimer=setTimeout(openOperator,2000);});
+for(const event of ['pointerup','pointercancel','pointerleave'])brand.addEventListener(event,cancelHold);
+brand.addEventListener('contextmenu',event=>event.preventDefault());
 function alertError(message){const el=$('errorBox');el.textContent=message;el.hidden=false;}
 function clearError(){$('errorBox').hidden=true;$('backendInfo').hidden=true;}
 let toastTimer=0;
@@ -51,7 +60,7 @@ let queueSnapshot=null;
 function renderQueue(data){
  queueSnapshot=data;$('queuePanel').hidden=false;
  $('queueTitle').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});
- $('queueDetail').textContent=data.state==='processing'?(data.account_slot?t('조회 계정 {n}에서 패보를 가져와 변환하고 있습니다.',{n:data.account_slot}):t('작혼 패보를 가져와 변환하고 있습니다.')):
+ $('queueDetail').textContent=data.state==='processing'?t('작혼 패보를 가져와 변환하고 있습니다.'):
   (data.cooldown?t('작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.'):
   t('전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.'))+
   (data.wait_seconds>0?' '+t('조회 간격 대기: {n}초 이상',{n:data.wait_seconds}):'');
@@ -150,9 +159,9 @@ function renderAuth(data){
     $('personalEmailFields').hidden=serviceSetup;
     $('operatorAccess').hidden=!serviceSetup;
     $('sendCodeBtn').textContent=serviceSetup?t('공용 계정 인증 메일 발송'):t('인증 메일 발송');
-    $('sharedReady').hidden=!sharedReady||operatorMode;
-    $('sharedSetup').hidden=!data.shared_configured||(sharedReady&&!operatorMode);
-    $('authPanel').hidden=!!data.shared_configured&&!operatorMode;
+    $('sharedReady').hidden=true;
+    $('sharedSetup').hidden=!operatorMode||!data.shared_configured;
+    $('authPanel').hidden=!operatorMode;
     if(data.shared_configured){
       const storageText=data.shared_session_storage==='encrypted_postgres'
         ? t(' 인증 정보는 외부 DB에 암호화 저장되며 서버 재시작 후 복원됩니다.')

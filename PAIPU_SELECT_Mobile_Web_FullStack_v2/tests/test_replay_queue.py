@@ -211,3 +211,19 @@ def test_region_change_requires_new_auth_and_preserves_old_region_and_other_slot
     assert ServiceAccount(owners[2].email,'kr',Session,SlotVault(vault,3,'kr')).session.token=='secret'
     kr.session.token='kr-rotated';kr.save(kr.session)
     assert ServiceAccount(jp.email,'jp',Session,SlotVault(vault,2,'jp')).session.token=='jp-secret'
+
+
+def test_nine_slots_preserve_existing_sessions_on_refresh_and_restore():
+    vault=MemoryVault()
+    owners=[ServiceAccount(f'account{i}@example.com','jp',Session,SlotVault(vault,i,'jp')) for i in range(1,10)]
+    for account in owners:
+        account.enroll(Session(0,0,email=account.email,region='jp',uid=account.email,
+                              token='existing-token',device_id='device'))
+    owners[8].session.token='rotated-nine'
+    owners[8].save(owners[8].session)
+    restored=[ServiceAccount(a.email,'jp',Session,SlotVault(vault,i,'jp')) for i,a in enumerate(owners,1)]
+    assert [a.session.token for a in restored]==['existing-token']*8+['rotated-nine']
+    pool=AccountPool(restored)
+    assert pool.registration_account(9) is restored[8]
+    with pytest.raises(ValueError):pool.registration_account(10)
+    assert len(pool.flags()['shared_accounts'])==9
