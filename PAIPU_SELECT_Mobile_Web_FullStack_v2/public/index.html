@@ -30,8 +30,8 @@
           <option value="en">글로벌 영어 (US/EN)</option>
         </select>
         <div id="authLoggedOut">
-          <label for="emailInput" class="field-label">Yostar 로그인 이메일</label>
-          <div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"><button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button></div>
+          <div id="personalEmailFields"><label for="emailInput" class="field-label">Yostar 로그인 이메일</label><div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div></div>
+          <button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button>
           <div id="verifyRow" hidden><label for="codeInput" class="field-label">이메일로 받은 인증코드</label><div class="auth-fields"><input id="codeInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="인증코드"><button id="verifyBtn" type="button" class="btn outline">로그인</button></div></div>
         </div>
         <div id="authLoggedIn" hidden><span id="signedInEmail"></span><button id="logoutBtn" type="button" class="linkbtn">로그아웃</button></div>

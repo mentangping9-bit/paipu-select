@@ -93,7 +93,9 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
             assert page.headers['Cache-Control'] == 'no-store'
             assert f'app.js?v={server.BUILD}' in page.read().decode()
             assert not json.load(visitor.open(base+'/api/auth/status'))['shared_ready']
-            post(operator,'/api/auth/send-code',{'email':'service@example.com','region':'kr'}).read()
+            post(operator,'/api/auth/send-code',{'service_account':True,
+                                               'email':'unrelated@example.com','region':'en'}).read()
+            client.send_email_code.assert_awaited_once_with('service@example.com')
             result = json.load(post(operator,'/api/auth/verify',{'code':'123456'}))
             assert result['shared_enrolled']
             status = json.load(visitor.open(base+'/api/auth/status'))

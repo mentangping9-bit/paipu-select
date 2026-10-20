@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const parser = globalThis.NagaParser;
 let rounds = []; let chosen = new Set(); let mode = 'url'; let latestFile = ''; let busy = false;
-let koreanServerReady = null; let authenticated = false; let sharedReady = false;
+let koreanServerReady = null; let authenticated = false; let sharedReady = false; let serviceSetup = false;
 const operatorMode = new URL(location.href).searchParams.get('setup') === '1';
 function alertError(message){const el=$('errorBox');el.textContent=message;el.hidden=false;}
 function clearError(){$('errorBox').hidden=true;$('backendInfo').hidden=true;}
@@ -69,6 +69,9 @@ async function refreshAuth(){
     const data=await res.json();
     authenticated=!!data.authenticated;
     sharedReady=!!data.shared_ready;
+    serviceSetup=operatorMode&&!!data.shared_configured;
+    $('personalEmailFields').hidden=serviceSetup;
+    $('sendCodeBtn').textContent=serviceSetup?'공용 계정 인증 메일 발송':'인증 메일 발송';
     $('sharedReady').hidden=!sharedReady||operatorMode;
     $('sharedSetup').hidden=!data.shared_configured||(sharedReady&&!operatorMode);
     $('authPanel').hidden=!!data.shared_configured&&!operatorMode;
@@ -87,7 +90,7 @@ async function refreshAuth(){
     $('authLoggedOut').hidden=authenticated;
     $('authLoggedIn').hidden=!authenticated;
     $('signedInEmail').textContent=(data.email||'로그인됨')+' · '+String(data.region||'kr').toUpperCase();
-    if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=false;}
+    if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=serviceSetup;}
     $('authStatus').textContent=operatorMode&&data.shared_configured?(sharedReady?'공용 조회 계정 연결됨':'공용 계정 최초 인증 필요'):authenticated?(data.game_authenticated?'게임 로그인 및 패보 조회 확인됨':'이메일 인증 완료 · 게임 로그인은 조회 시 확인'):'작혼 패보를 읽기 위한 이메일 인증';
   }catch(e){authenticated=false;$('backendDetail').textContent='계정 연결 상태를 확인하지 못했습니다. 페이지를 새로고침해 주세요.';$('backendInfo').hidden=false;}
 }
@@ -96,10 +99,10 @@ $('sendCodeBtn').onclick=async()=>{
   const btn=$('sendCodeBtn');btn.disabled=true;
   clearError();btn.textContent='발송 중…';
   try{
-    await api('/api/auth/send-code',{email:$('emailInput').value.trim(),region:$('regionSelect').value});
+    await api('/api/auth/send-code',serviceSetup?{service_account:true}:{email:$('emailInput').value.trim(),region:$('regionSelect').value});
     $('verifyRow').hidden=false;toast('Yostar 인증 메일을 확인해 주세요.');$('codeInput').focus();
   }catch(e){authError(e);}
-  finally{btn.disabled=false;btn.textContent='인증 메일 발송';}
+  finally{btn.disabled=false;btn.textContent=serviceSetup?'공용 계정 인증 메일 발송':'인증 메일 발송';}
 };
 $('verifyBtn').onclick=async()=>{
   const btn=$('verifyBtn');btn.disabled=true;btn.textContent='인증 중…';clearError();

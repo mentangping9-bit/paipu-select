@@ -233,3 +233,16 @@ def test_http_storage_failure_is_safe_and_json_ui_still_served(database):
         api.shutdown()
         thread.join()
         api.server_close()
+
+
+def test_connection_diagnostics_never_expose_credentials():
+    from postgres_vault import safe_database_error
+    try:
+        try:
+            raise psycopg.OperationalError('password=private-secret certificate verify failed')
+        except psycopg.Error:
+            raise VaultUnavailable('Storage failed') from None
+    except VaultUnavailable as error:
+        diagnostic = safe_database_error(error)
+    assert diagnostic == {'error_type':'OperationalError', 'sqlstate':None, 'reason':'tls_certificate'}
+    assert 'private-secret' not in str(diagnostic)

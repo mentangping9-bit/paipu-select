@@ -382,8 +382,11 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             body = self._read_request()
             if action == '/api/auth/send-code':
-                email = str(body.get('email', '')).strip().lower()
-                region = str(body.get('region', 'kr')).lower()
+                use_service = body.get('service_account') is True
+                if use_service and not service_account.configured:
+                    raise ValueError('공용 계정이 설정되지 않았습니다.')
+                email = service_account.email if use_service else str(body.get('email', '')).strip().lower()
+                region = service_account.region if use_service else str(body.get('region', 'kr')).lower()
                 if region not in ('kr','jp','en'):
                     raise ValueError('인증 지역은 한국/일본/영문 중 선택해 주세요.')
                 if not EMAIL.fullmatch(email) or len(email) > 254:
@@ -517,7 +520,8 @@ if __name__ == '__main__':
             print('Vault integration validation:', json.dumps(validation), flush=True)
         except Exception as exc:
             # No DSN, keys, SQL parameters or raw driver messages in logs.
-            print('Vault integration validation failed:', type(exc).__name__, flush=True)
+            from postgres_vault import safe_database_error
+            print('Vault integration validation failed:', json.dumps(safe_database_error(exc)), flush=True)
             raise SystemExit(1) from None
     threading.Thread(target=probe_gateway, daemon=True).start()
     port = int(os.getenv('PORT', '8765'))

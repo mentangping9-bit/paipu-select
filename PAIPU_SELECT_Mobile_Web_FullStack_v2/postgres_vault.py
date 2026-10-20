@@ -23,6 +23,37 @@ class VaultBusy(RuntimeError):
     pass
 
 
+def safe_database_error(error):
+    """Classify driver failures without exposing DSNs, parameters or messages."""
+    root = error
+    seen = set()
+    while root.__context__ is not None and id(root) not in seen:
+        seen.add(id(root))
+        root = root.__context__
+    message = str(root).lower()
+    reason = 'unclassified'
+    for marker, code in (
+        ('certificate verify failed', 'tls_certificate'),
+        ('root certificate', 'tls_root_store'),
+        ('failed to resolve', 'dns'),
+        ('could not translate host', 'dns'),
+        ('password authentication failed', 'authentication'),
+        ('authentication failed', 'authentication'),
+        ('timeout', 'timeout'),
+        ('timed out', 'timeout'),
+        ('connection refused', 'connection_refused'),
+        ('server closed', 'connection_closed'),
+        ('connection has been closed', 'connection_closed'),
+        ('channel binding', 'channel_binding'),
+        ('unsupported startup parameter', 'startup_parameter'),
+    ):
+        if marker in message:
+            reason = code
+            break
+    return {'error_type': type(root).__name__, 'sqlstate': getattr(root, 'sqlstate', None),
+            'reason': reason}
+
+
 class PostgresVault:
     storage = 'encrypted_postgres'
     # One dedicated account per deployment/database. Not a secret.
