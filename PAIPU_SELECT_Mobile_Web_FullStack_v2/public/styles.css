@@ -20,3 +20,6 @@
 select:focus-visible{outline:3px solid var(--teal);outline-offset:3px}
 html[lang="en"] .step{white-space:normal}html[lang="en"] h1{letter-spacing:-1.5px}
 @media(max-width:600px){.top-actions{gap:5px}.top-actions .top-pill{display:none}.language-picker select{max-width:108px;font-size:12px}.steps{gap:5px}.step{white-space:normal}.step span{flex-shrink:0}.indicator{white-space:normal;text-align:right}.result-actions.bottom{flex-wrap:wrap}.summary-line{line-height:1.8}}
+
+#regionSelect{width:100%;min-height:42px;margin:6px 0 12px;border-radius:8px;color:inherit;background:#141d31;border:1px solid #62718b;padding:8px}
+#operatorAccess{margin-bottom:18px}

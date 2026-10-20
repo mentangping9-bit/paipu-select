@@ -43,6 +43,42 @@ COOKIE_NAME = "ps_session"
 TTL = 2 * 60 * 60
 MAX_JSON = 12 * 1024 * 1024
 SESSION_LIMIT = 1500
+OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
+STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js'}
+
+
+class RateLimited(ValueError):
+    pass
+
+
+class BoundedHTTPServer(ThreadingHTTPServer):
+    """Bound accepted handler threads; slow clients cannot create unlimited work."""
+    daemon_threads = True
+
+    def __init__(self, *args, max_connections=24, **kwargs):
+        self.slots = threading.BoundedSemaphore(max_connections)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            try:
+                request.settimeout(1)
+                request.sendall(b'HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
 
 @dataclass
 class Session:
@@ -162,10 +198,13 @@ def _cleanup():
 def _throttle(key: str, limit: int = 4, duration: int = 900):
     now = time.monotonic()
     with lock:
+        _cleanup()
+        if key not in auth_attempts and len(auth_attempts) >= 4096:
+            raise RateLimited('요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.')
         marks = auth_attempts.setdefault(key, [])
         marks[:] = [x for x in marks if now - x < duration]
         if len(marks) >= limit:
-            raise ValueError("인증 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
+            raise RateLimited("인증 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
         marks.append(now)
 
 
@@ -271,15 +310,29 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
 
 
 class Handler(SimpleHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(15)
+
+    def version_string(self):
+        return 'PAIPU SELECT'
+
+    def end_headers(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'")
+        if os.getenv('PUBLIC_HTTPS') == '1':
+            self.send_header('Strict-Transport-Security', 'max-age=15552000')
+        super().end_headers()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(PUBLIC), **kwargs)
 
     def log_message(self, format, *args):
         # Don't put OTP, e-mail or replay URL in logs.
-        if self.path.startswith('/api/'):
-            print('api', self.command, urlsplit(self.path).path)
-        else:
-            super().log_message(format, *args)
+        print('request', self.command, urlsplit(self.path).path)
 
     def json_reply(self, status: int, value: dict, *, sid: str | None = None):
         raw = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
@@ -287,8 +340,6 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(raw)))
         self.send_header('Cache-Control', 'no-store, private')
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Referrer-Policy', 'no-referrer')
         if sid:
             secure = ('Secure; ' if self.headers.get('X-Forwarded-Proto') == 'https'
                       or os.getenv('PUBLIC_HTTPS') == '1' else '')
@@ -316,14 +367,19 @@ class Handler(SimpleHTTPRequestHandler):
         return None, None
 
     def _read_request(self):
+        if self.headers.get('Sec-Fetch-Site') == 'cross-site':
+            raise ValueError('요청 출처가 허용되지 않았습니다.')
         origin = self.headers.get('Origin')
         host = self.headers.get('Host', '')
         if origin:
             u = urlsplit(origin)
-            if u.netloc != host or u.scheme not in ('https', 'http'):
+            if (u.netloc != host or u.scheme not in ('https', 'http') or
+                    (os.getenv('PUBLIC_HTTPS') == '1' and u.scheme != 'https')):
                 raise ValueError('요청 출처가 허용되지 않았습니다.')
-        if not self.headers.get('Content-Type', '').startswith('application/json'):
+        if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/json':
             raise ValueError('JSON 요청만 지원합니다.')
+        if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
+            raise ValueError('잘못된 요청 길이입니다.')
         try:
             length = int(self.headers.get('Content-Length', '0'))
         except ValueError as exc:
@@ -335,12 +391,31 @@ class Handler(SimpleHTTPRequestHandler):
             raise ValueError('요청은 JSON 객체여야 합니다.')
         return value
 
+    def _operator_authorized(self):
+        if not service_account.configured:
+            return True
+        supplied = self.headers.get('X-Paipu-Operator-Key', '')
+        return bool(32 <= len(OPERATOR_KEY) <= 128 and len(supplied) <= 128 and
+                    secrets.compare_digest(supplied.encode('utf-8'), OPERATOR_KEY.encode('utf-8')))
+
+    def do_HEAD(self):
+        # HEAD must enforce the same public file boundary as GET.
+        path = urlsplit(self.path).path
+        if path not in STATIC_PATHS | {'/', '/index.html'}:
+            self.send_error(404)
+            return
+        target = (PUBLIC / (path.lstrip('/') or 'index.html')).resolve()
+        if not target.is_relative_to(PUBLIC.resolve()) or not target.is_file():
+            self.send_error(404)
+            return
+        return super().do_HEAD()
+
     def do_GET(self):
         if urlsplit(self.path).path == '/api/health':
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.2.0',
+                                  'version': '3.2.1',
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
                                   'resolved_versions': version_status(),
@@ -353,6 +428,7 @@ class Handler(SimpleHTTPRequestHandler):
                                   'email': s.email if s and s.uid else '',
                                   'region': s.region if s and s.uid else 'kr',
                                   'game_authenticated': bool(s and s.game_verified),
+                                  'operator_auth_required': service_account.configured,
                                   **service_account.status()})
             return
         self.path = urlsplit(self.path).path
@@ -367,10 +443,14 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(raw)))
             self.send_header('Cache-Control', 'no-store')
-            self.send_header('X-Content-Type-Options', 'nosniff')
             self.end_headers()
             self.wfile.write(raw)
             return
+        if self.path not in STATIC_PATHS:
+            return self.json_reply(404, {'error': '없는 경로입니다.'})
+        path = (PUBLIC / self.path.lstrip('/')).resolve()
+        if not path.is_relative_to(PUBLIC.resolve()) or not path.is_file():
+            return self.json_reply(404, {'error': '없는 경로입니다.'})
         return super().do_GET()
 
     def do_POST(self):
@@ -381,6 +461,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_reply(404, {'error': '없는 API입니다.'})
         try:
             body = self._read_request()
+            if action.startswith('/api/auth/') and not self._operator_authorized():
+                return self.json_reply(403, {'code': 'OPERATOR_AUTH_REQUIRED',
+                    'error': '공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.'})
             if action == '/api/auth/send-code':
                 use_service = body.get('service_account') is True
                 if use_service and not service_account.configured:
@@ -437,7 +520,7 @@ class Handler(SimpleHTTPRequestHandler):
                     raise ValueError('인증 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.')
                 held_operation = s.operation
                 code = str(body.get('code', '')).strip()
-                if not re.fullmatch(r'\d{4,10}', code) or not s.email or not s.device_id:
+                if not re.fullmatch(r'[0-9]{4,10}', code) or not s.email or not s.device_id:
                     raise ValueError('이메일 인증코드를 입력해 주세요.')
                 _throttle('verify:' + sid, 8, 900)
                 _converter()
@@ -460,6 +543,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(exc, VaultBusy):
                 service_account.storage_error = True
             return self.json_reply(503, {'code': 'ACCOUNT_STORAGE_UNAVAILABLE', 'error': str(exc)})
+        except RateLimited:
+            return self.json_reply(429, {'code': 'RATE_LIMITED', 'error': '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'})
         except ValueError as exc:
             return self.json_reply(400, {'error': str(exc)})
         except asyncio.TimeoutError:
@@ -525,5 +610,6 @@ if __name__ == '__main__':
             raise SystemExit(1) from None
     threading.Thread(target=probe_gateway, daemon=True).start()
     port = int(os.getenv('PORT', '8765'))
+    print(f'Runtime Python: {sys.version.split()[0]}', flush=True)
     print(f'Paipu Select started: http://0.0.0.0:{port}')
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+    BoundedHTTPServer(('0.0.0.0', port), Handler).serve_forever()

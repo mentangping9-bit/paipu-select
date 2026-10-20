@@ -8,6 +8,6 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.12.9
+        value: 3.12.15
       - key: PUBLIC_HTTPS
         value: '1'

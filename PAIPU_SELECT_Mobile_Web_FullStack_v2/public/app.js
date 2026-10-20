@@ -54,6 +54,7 @@ function openNaga(){
  return copied;
 }
 function saveOutput(){const url=URL.createObjectURL(new Blob([$('outputArea').value],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='NAGA_selected_rounds.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+window.addEventListener('pagehide',()=>{$('operatorKeyInput').value='';});
 $('nagaBtn').onclick=openNaga;
 $('jsonDownloadBtn').onclick=saveJSON;
 $('urlTab').onclick=()=>switchTab('url');$('fileTab').onclick=()=>switchTab('file');$('convertUrlBtn').onclick=loadFromUrl;$('jsonInput').onchange=e=>readFile(e.target.files?.[0]);const zone=$('dropzone');zone.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('jsonInput').click();}};zone.ondragover=e=>{e.preventDefault();zone.classList.add('hover');};zone.ondragleave=()=>zone.classList.remove('hover');zone.ondrop=e=>{e.preventDefault();zone.classList.remove('hover');readFile(e.dataTransfer?.files?.[0]);};
@@ -65,7 +66,7 @@ function apiError(data,status){
  return message+` (HTTP ${status}${code?' · '+code:''}${Number.isInteger(data.server_code)&&data.server_code?' · '+data.server_code:''})`;
 }
 async function api(path, value={}) {
-  const res=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)});
+  const res=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(serviceSetup?{'X-Paipu-Operator-Key':$('operatorKeyInput').value}:{})},body:JSON.stringify(value)});
   const data=await res.json().catch(()=>({}));
   if(!res.ok)throw Error(apiError(data,res.status));
   return data;
@@ -82,6 +83,7 @@ function renderAuth(data){
     sharedReady=!!data.shared_ready;
     serviceSetup=operatorMode&&!!data.shared_configured;
     $('personalEmailFields').hidden=serviceSetup;
+    $('operatorAccess').hidden=!serviceSetup;
     $('sendCodeBtn').textContent=serviceSetup?t('공용 계정 인증 메일 발송'):t('인증 메일 발송');
     $('sharedReady').hidden=!sharedReady||operatorMode;
     $('sharedSetup').hidden=!data.shared_configured||(sharedReady&&!operatorMode);

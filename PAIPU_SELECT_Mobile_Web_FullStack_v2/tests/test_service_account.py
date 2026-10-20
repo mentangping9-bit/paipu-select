@@ -84,10 +84,13 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
                                 'exchange_email_code':AsyncMock(return_value=YostarSession('private-uid','private-token','private-device')),
                                 'refresh':AsyncMock(return_value=YostarSession('private-uid','rotated-token','private-device'))})()
     def post(opener, path, value):
+        headers = {'Content-Type':'application/json'}
+        if opener is operator:
+            headers['X-Paipu-Operator-Key'] = 'test-operator-key-with-at-least-32-characters'
         return opener.open(urllib.request.Request(base+path, data=json.dumps(value).encode(),
-                                                  headers={'Content-Type':'application/json'}))
+                                                  headers=headers))
     try:
-        with patch.object(server,'service_account',manager), patch.object(regional_auth,'regional_client',return_value=client), patch.object(
+        with patch.object(server,'OPERATOR_KEY','test-operator-key-with-at-least-32-characters'), patch.object(server,'service_account',manager), patch.object(regional_auth,'regional_client',return_value=client), patch.object(
                 majsoul_client,'fetch_record',new=AsyncMock(return_value=FIXTURE)):
             page = visitor.open(base+'/?setup=1')
             assert page.headers['Cache-Control'] == 'no-store'

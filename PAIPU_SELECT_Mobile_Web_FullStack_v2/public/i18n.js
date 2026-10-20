@@ -666,6 +666,21 @@ const messages = {
     "ko": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
     "en": "Too many requests. Please try again shortly.",
     "ja": "リクエストが多すぎます。しばらくしてから再度お試しください。"
+  },
+  "운영자 인증키": {
+    "ko": "운영자 인증키",
+    "en": "Operator access key",
+    "ja": "運営者認証キー"
+  },
+  "운영자만 계정 인증 설정을 변경할 수 있습니다. 인증키는 저장하지 않습니다.": {
+    "ko": "운영자만 계정 인증 설정을 변경할 수 있습니다. 인증키는 저장하지 않습니다.",
+    "en": "Only the operator can change account authentication. The access key is not saved.",
+    "ja": "アカウント認証設定の変更は運営者のみ可能です。認証キーは保存しません。"
+  },
+  "공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.": {
+    "ko": "공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.",
+    "en": "An operator access key is required to manage service authentication.",
+    "ja": "共用アカウントの認証設定には運営者認証キーが必要です。"
   }
 };
 const supported = ['ko','en','ja'];
