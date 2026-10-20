@@ -330,8 +330,21 @@ class Handler(SimpleHTTPRequestHandler):
                                   **service_account.status()})
             return
         self.path = urlsplit(self.path).path
-        if self.path == '/':
-            self.path = '/index.html'
+        if self.path in ('/', '/index.html'):
+            # A cached script from the previous deploy must not silently hide a
+            # newly configured authentication mode. Bind assets to this build.
+            html = (PUBLIC / 'index.html').read_text(encoding='utf-8')
+            for name in ('app.js', 'converter.js', 'link-utils.js', 'styles.css'):
+                html = html.replace(f'./{name}"', f'./{name}?v={BUILD}"')
+            raw = html.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(raw)))
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('X-Content-Type-Options', 'nosniff')
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         return super().do_GET()
 
     def do_POST(self):

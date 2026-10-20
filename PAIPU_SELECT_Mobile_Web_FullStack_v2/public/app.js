@@ -83,7 +83,7 @@ async function refreshAuth(){
     $('signedInEmail').textContent=(data.email||'로그인됨')+' · '+String(data.region||'kr').toUpperCase();
     if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=false;}
     $('authStatus').textContent=operatorMode&&data.shared_configured?(sharedReady?'공용 조회 계정 연결됨':'공용 계정 최초 인증 필요'):authenticated?(data.game_authenticated?'게임 로그인 및 패보 조회 확인됨':'이메일 인증 완료 · 게임 로그인은 조회 시 확인'):'작혼 패보를 읽기 위한 이메일 인증';
-  }catch(e){authenticated=false;}
+  }catch(e){authenticated=false;$('backendDetail').textContent='계정 연결 상태를 확인하지 못했습니다. 페이지를 새로고침해 주세요.';$('backendInfo').hidden=false;}
 }
 function authError(e){alertError(e.message);$('authPanel').scrollIntoView({behavior:'smooth',block:'center'});}
 $('sendCodeBtn').onclick=async()=>{

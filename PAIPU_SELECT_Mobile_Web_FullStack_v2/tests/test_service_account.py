@@ -89,6 +89,9 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
     try:
         with patch.object(server,'service_account',manager), patch.object(regional_auth,'regional_client',return_value=client), patch.object(
                 majsoul_client,'fetch_record',new=AsyncMock(return_value=FIXTURE)):
+            page = visitor.open(base+'/?setup=1')
+            assert page.headers['Cache-Control'] == 'no-store'
+            assert f'app.js?v={server.BUILD}' in page.read().decode()
             assert not json.load(visitor.open(base+'/api/auth/status'))['shared_ready']
             post(operator,'/api/auth/send-code',{'email':'service@example.com','region':'kr'}).read()
             result = json.load(post(operator,'/api/auth/verify',{'code':'123456'}))
