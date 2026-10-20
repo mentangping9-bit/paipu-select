@@ -2,6 +2,10 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const parser = globalThis.NagaParser;
+const backend=globalThis.PaipuBackend, fetch=backend.request;
+let serverState='starting';
+function renderServerState(){const el=$('serverStatus');el.hidden=serverState==='ready';el.textContent=t(serverState==='failed'?'서버 준비에 시간이 걸립니다. 잠시 후 다시 시도해 주세요.':'변환 서버를 준비하고 있습니다. 링크를 붙여넣거나 JSON 파일을 먼저 사용할 수 있습니다.');}
+document.addEventListener('paipu-server-state',e=>{serverState=e.detail;renderServerState();});
 const i18n=globalThis.PaipuI18n, t=i18n.t;
 let authSnapshot=null;
 let retryUntil=0, retryTimer=0;
@@ -68,6 +72,7 @@ async function loadFromUrl(){
  try{value=normalizedUrl($('paipuInput').value);}catch(e){alertError(i18n.error(e.message));return;}
  busy=true;updateConvertButton();
  try{
+  await backend.ready();
   const response=await fetch('/api/convert',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:AbortSignal.timeout(30000)});
   let data=await replayResponse(response);
   const deadline=Date.now()+35*60*1000;
@@ -225,8 +230,7 @@ $('logoutBtn').onclick=async()=>{
 };
 async function detectKoreanProvider(){
   try{
-    const res=await fetch('/api/health',{cache:'no-store'});
-    const data=await res.json();
+    const data=await backend.ready();
     $('buildVersion').textContent=` · ${data.version||''} · ${(data.build_commit||'local').slice(0,7)}`;
     koreanServerReady=data.kr_fetch_available===true;
     if(!koreanServerReady){$('backendDetail').textContent=t('패보 변환 라이브러리 로딩에 실패했습니다. 서버 설치 상태를 확인해 주세요.');$('backendInfo').hidden=false;}
@@ -234,7 +238,7 @@ async function detectKoreanProvider(){
   }catch(e){$('backendDetail').textContent=t('패보 서버가 실행되고 있지 않습니다. 웹서버로 사이트를 열어야 합니다.');$('backendInfo').hidden=false;}
 }
 document.addEventListener('paipu-language-change',()=>{
- clearError();$('toast').hidden=true;
+ clearError();$('toast').hidden=true;renderServerState();
  if(authSnapshot)renderAuth(authSnapshot);
  updateConvertButton();
  if(queueSnapshot)renderQueue(queueSnapshot);

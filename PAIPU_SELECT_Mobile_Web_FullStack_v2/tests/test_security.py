@@ -149,3 +149,45 @@ def test_overloaded_server_rejects_extra_connection_and_recovers():
         api.shutdown()
         worker.join()
         api.server_close()
+
+FRONTEND = 'https://paipu-select-web.onrender.com'
+
+
+def test_static_frontend_cors_does_not_open_operator_apis(endpoint):
+    for origin in [FRONTEND, 'https://evil.example', FRONTEND+'.evil.example']:
+        status, headers, _ = request(endpoint, '/api/convert', headers={
+            'Origin':origin,'Access-Control-Request-Method':'POST',
+            'Access-Control-Request-Headers':'content-type,x-paipu-visitor'},method='OPTIONS')
+        assert status == (204 if origin==FRONTEND else 403)
+        assert headers.get('Access-Control-Allow-Origin') == (FRONTEND if origin==FRONTEND else None)
+    status, headers, _ = request(endpoint, '/api/auth/accounts', headers={
+        'Origin':FRONTEND,'Access-Control-Request-Method':'POST'},method='OPTIONS')
+    assert status==403 and 'Access-Control-Allow-Origin' not in headers
+    status, _, _ = request(endpoint, '/api/auth/accounts', {}, {
+        'Origin':FRONTEND,'Sec-Fetch-Site':'cross-site','X-Paipu-Operator-Key':KEY})
+    assert status==400
+
+
+def test_static_frontend_queue_ownership_without_cookies(endpoint):
+    owner = ServiceAccount('owner@example.com','jp',server.Session)
+    owner.enroll(server.Session(0,0,email=owner.email,region='jp',uid='secret-id',
+                               token='secret-token',device_id='secret-device'))
+    common={'Origin':FRONTEND,'Sec-Fetch-Site':'cross-site'}
+    with patch.object(server,'service_account',owner), patch.object(server,'service_pool',AccountPool([owner])), patch.object(
+            server,'fetch_from_mahjongsoul',return_value={'log':[]}) as fetch:
+        status, headers, raw = request(endpoint,'/api/convert',{'url':URL},common)
+        assert status==202
+        token=headers['X-Paipu-Visitor']
+        assert len(token)==57 and 'secret' not in token
+        assert headers['Access-Control-Allow-Origin']==FRONTEND
+        assert 'Access-Control-Allow-Credentials' not in headers
+        job=json.loads(raw)['job']
+        path='/api/convert/status?job='+job
+        assert request(endpoint,path,headers=common)[0]==404
+        for _ in range(30):
+            status, _, raw=request(endpoint,path,headers={**common,'X-Paipu-Visitor':token})
+            if status!=202:break
+            time.sleep(.01)
+        assert status==200 and json.loads(raw)=={'log':[]}
+        assert request(endpoint,path,headers={**common,'X-Paipu-Visitor':token[:-1]+'x'})[0]==404
+        fetch.assert_called_once()

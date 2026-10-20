@@ -2,6 +2,8 @@
 (() => {
 'use strict';
 const messages = {
+  "변환 서버를 준비하고 있습니다. 링크를 붙여넣거나 JSON 파일을 먼저 사용할 수 있습니다.": {"ko":"변환 서버를 준비하고 있습니다. 링크를 붙여넣거나 JSON 파일을 먼저 사용할 수 있습니다.","en":"Starting the conversion server. You can paste a link or use a JSON file now.","ja":"変換サーバーを起動中です。リンクの貼り付けやJSONファイルの読み込みは先に行えます。"},
+  "서버 준비에 시간이 걸립니다. 잠시 후 다시 시도해 주세요.": {"ko":"서버 준비에 시간이 걸립니다. 잠시 후 다시 시도해 주세요.","en":"The server is taking longer to start. Please try again shortly.","ja":"サーバーの起動に時間がかかっています。しばらくしてから再試行してください。"},
   "패보 처리 중": {"ko": "패보 처리 중", "en": "Processing replay", "ja": "牌譜を処理中"},
   "대기열 {n}번째": {"ko": "대기열 {n}번째", "en": "Queue position: {n}", "ja": "順番待ち：{n}番目"},
   "작혼 패보를 가져와 변환하고 있습니다.": {"ko": "작혼 패보를 가져와 변환하고 있습니다.", "en": "Fetching and converting your Mahjong Soul replay.", "ja": "雀魂の牌譜を取得・変換しています。"},

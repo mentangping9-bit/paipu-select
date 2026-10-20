@@ -47,7 +47,7 @@ TTL = 2 * 60 * 60
 MAX_JSON = 12 * 1024 * 1024
 SESSION_LIMIT = 1500
 OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
-STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js'}
+STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js'}
 VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
 replay_admission = ReplayAdmission()
@@ -341,7 +341,29 @@ class Handler(SimpleHTTPRequestHandler):
     def version_string(self):
         return 'PAIPU SELECT'
 
+    def _frontend_allowed(self):
+        return (self.headers.get("Origin") == "https://paipu-select-web.onrender.com"
+                and urlsplit(self.path).path in ("/api/health", "/api/auth/status",
+                                                "/api/convert", "/api/convert/status"))
+
+    def do_OPTIONS(self):
+        method = self.headers.get("Access-Control-Request-Method", "")
+        requested = {v.strip().lower() for v in self.headers.get("Access-Control-Request-Headers", "").split(",") if v.strip()}
+        allowed_method = "POST" if urlsplit(self.path).path == "/api/convert" else "GET"
+        if not self._frontend_allowed() or method != allowed_method or not requested <= {"content-type", "x-paipu-visitor"}:
+            return self.json_reply(403, {"error":"요청 출처가 허용되지 않았습니다."})
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", allowed_method)
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Paipu-Visitor")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def end_headers(self):
+        if self._frontend_allowed():
+            self.send_header("Access-Control-Allow-Origin", "https://paipu-select-web.onrender.com")
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Expose-Headers", "X-Paipu-Visitor, X-Paipu-Account-Slot, X-Paipu-Cache, Retry-After")
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
@@ -370,6 +392,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Set-Cookie', f'{COOKIE_NAME}={sid}; Path=/; HttpOnly; {secure}SameSite=Lax; Max-Age={TTL}')
         visitor = getattr(self, 'new_visitor_cookie', None)
         if visitor:
+            if self._frontend_allowed():
+                self.send_header('X-Paipu-Visitor', visitor)
             secure = 'Secure; ' if os.getenv('PUBLIC_HTTPS') == '1' else ''
             self.send_header('Set-Cookie', f'{VISITOR_COOKIE}={visitor}; Path=/; HttpOnly; {secure}SameSite=Lax; Max-Age=86400')
         for name, value in (headers or {}).items():
@@ -384,6 +408,8 @@ class Handler(SimpleHTTPRequestHandler):
             token = cookie[VISITOR_COOKIE].value if VISITOR_COOKIE in cookie else ''
         except Exception:
             token = ''
+        if self._frontend_allowed():
+            token = self.headers.get('X-Paipu-Visitor', '')
         identifier, _, signature = token.partition('.')
         if re.fullmatch(r'[A-Za-z0-9_-]{24}', identifier) and re.fullmatch(r'[0-9a-f]{32}', signature):
             expected = hmac.new(VISITOR_SIGNING_KEY, identifier.encode(), hashlib.sha256).hexdigest()[:32]
@@ -414,11 +440,12 @@ class Handler(SimpleHTTPRequestHandler):
         return None, None
 
     def _read_request(self):
-        if self.headers.get('Sec-Fetch-Site') == 'cross-site':
+        frontend = self._frontend_allowed() and urlsplit(self.path).path == '/api/convert'
+        if self.headers.get('Sec-Fetch-Site') == 'cross-site' and not frontend:
             raise ValueError('요청 출처가 허용되지 않았습니다.')
         origin = self.headers.get('Origin')
         host = self.headers.get('Host', '')
-        if origin:
+        if origin and not frontend:
             u = urlsplit(origin)
             if (u.netloc != host or u.scheme not in ('https', 'http') or
                     (os.getenv('PUBLIC_HTTPS') == '1' and u.scheme != 'https')):
@@ -472,7 +499,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.3.6',
+                                  'version': '3.4.0',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
@@ -494,7 +521,7 @@ class Handler(SimpleHTTPRequestHandler):
             # A cached script from the previous deploy must not silently hide a
             # newly configured authentication mode. Bind assets to this build.
             html = (PUBLIC / 'index.html').read_text(encoding='utf-8')
-            for name in ('app.js', 'converter.js', 'link-utils.js', 'i18n.js', 'styles.css'):
+            for name in ('app.js', 'backend.js', 'converter.js', 'link-utils.js', 'i18n.js', 'styles.css'):
                 html = html.replace(f'./{name}"', f'./{name}?v={BUILD}"')
             raw = html.encode('utf-8')
             self.send_response(200)
