@@ -17,6 +17,8 @@ import os
 from pathlib import Path
 import re
 import secrets
+import hashlib
+import hmac
 import subprocess
 import sys
 import threading
@@ -25,6 +27,7 @@ from contextlib import nullcontext
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from service_account import ServiceAccount, SessionVault
 from postgres_vault import PostgresVault, VaultBusy, VaultCorrupt, VaultUnavailable
+from replay_admission import ReplayAdmission, ReplayLimited
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -45,6 +48,9 @@ MAX_JSON = 12 * 1024 * 1024
 SESSION_LIMIT = 1500
 OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
 STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js'}
+VISITOR_COOKIE = 'ps_visitor'
+VISITOR_SIGNING_KEY = secrets.token_bytes(32)
+replay_admission = ReplayAdmission()
 
 
 class RateLimited(ValueError):
@@ -63,7 +69,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         if not self.slots.acquire(blocking=False):
             try:
                 request.settimeout(1)
-                request.sendall(b'HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
+                request.sendall(b'HTTP/1.0 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 3\r\nContent-Length: 0\r\n\r\n')
             except OSError:
                 pass
             self.shutdown_request(request)
@@ -334,7 +340,7 @@ class Handler(SimpleHTTPRequestHandler):
         # Don't put OTP, e-mail or replay URL in logs.
         print('request', self.command, urlsplit(self.path).path)
 
-    def json_reply(self, status: int, value: dict, *, sid: str | None = None):
+    def json_reply(self, status: int, value: dict, *, sid: str | None = None, headers=None):
         raw = json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -344,8 +350,31 @@ class Handler(SimpleHTTPRequestHandler):
             secure = ('Secure; ' if self.headers.get('X-Forwarded-Proto') == 'https'
                       or os.getenv('PUBLIC_HTTPS') == '1' else '')
             self.send_header('Set-Cookie', f'{COOKIE_NAME}={sid}; Path=/; HttpOnly; {secure}SameSite=Lax; Max-Age={TTL}')
+        visitor = getattr(self, 'new_visitor_cookie', None)
+        if visitor:
+            secure = 'Secure; ' if os.getenv('PUBLIC_HTTPS') == '1' else ''
+            self.send_header('Set-Cookie', f'{VISITOR_COOKIE}={visitor}; Path=/; HttpOnly; {secure}SameSite=Lax; Max-Age=86400')
+        for name, value in (headers or {}).items():
+            self.send_header(name, str(value))
         self.end_headers()
         self.wfile.write(raw)
+
+    def _visitor(self):
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get('Cookie', ''))
+            token = cookie[VISITOR_COOKIE].value if VISITOR_COOKIE in cookie else ''
+        except Exception:
+            token = ''
+        identifier, _, signature = token.partition('.')
+        if re.fullmatch(r'[A-Za-z0-9_-]{24}', identifier) and re.fullmatch(r'[0-9a-f]{32}', signature):
+            expected = hmac.new(VISITOR_SIGNING_KEY, identifier.encode(), hashlib.sha256).hexdigest()[:32]
+            if secrets.compare_digest(expected, signature):
+                return identifier
+        identifier = secrets.token_urlsafe(18)
+        signature = hmac.new(VISITOR_SIGNING_KEY, identifier.encode(), hashlib.sha256).hexdigest()[:32]
+        self.new_visitor_cookie = identifier+'.'+signature
+        return identifier
 
     def _get_session(self, create=False):
         cookie = SimpleCookie()
@@ -415,7 +444,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.2.1',
+                                  'version': '3.2.2',
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
                                   'resolved_versions': version_status(),
@@ -510,7 +539,11 @@ class Handler(SimpleHTTPRequestHandler):
                                if service_account.configured else '먼저 Yostar 이메일 인증을 완료해 주세요.')
                     return self.json_reply(401, {'error': message, 'needs_auth': True})
                 if service_account.owns(s):
-                    _throttle('public-fetch:' + self.client_address[0], 30, 60)
+                    from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
+                    key = (s.region, parse_replay_url(url).replay_id)
+                    result, cache = replay_admission.run(key, self._visitor(),
+                                                        lambda: fetch_from_mahjongsoul(url, s))
+                    return self.json_reply(200, result, headers={'X-Paipu-Cache':cache})
                 result = fetch_from_mahjongsoul(url, s)
                 return self.json_reply(200, result)
             if not s:
@@ -543,6 +576,10 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(exc, VaultBusy):
                 service_account.storage_error = True
             return self.json_reply(503, {'code': 'ACCOUNT_STORAGE_UNAVAILABLE', 'error': str(exc)})
+        except ReplayLimited as exc:
+            return self.json_reply(exc.status, {'code':exc.code, 'retry_after':exc.retry_after,
+                'error':'요청이 많습니다. 안내된 시간 후 다시 시도해 주세요.'},
+                headers={'Retry-After':exc.retry_after})
         except RateLimited:
             return self.json_reply(429, {'code': 'RATE_LIMITED', 'error': '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'})
         except ValueError as exc:

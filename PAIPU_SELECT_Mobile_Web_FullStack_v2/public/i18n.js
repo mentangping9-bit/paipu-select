@@ -681,6 +681,41 @@ const messages = {
     "ko": "공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.",
     "en": "An operator access key is required to manage service authentication.",
     "ja": "共用アカウントの認証設定には運営者認証キーが必要です。"
+  },
+  "150초 동안 서버 응답이 없습니다.": {
+    "ko": "150초 동안 서버 응답이 없습니다.",
+    "en": "No server response within 150 seconds.",
+    "ja": "150秒以内にサーバーから応答がありませんでした。"
+  },
+  "{n}분": {
+    "ko": "{n}분",
+    "en": "{n} min",
+    "ja": "{n}分"
+  },
+  "{n}초": {
+    "ko": "{n}초",
+    "en": "{n} sec",
+    "ja": "{n}秒"
+  },
+  "{time} 후 다시 시도": {
+    "ko": "{time} 후 다시 시도",
+    "en": "Try again in {time}",
+    "ja": "{time}後に再試行"
+  },
+  "현재 다른 패보를 처리 중입니다. 잠시 후 다시 시도해 주세요.": {
+    "ko": "현재 다른 패보를 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    "en": "Other replays are being processed. Please try again shortly.",
+    "ja": "現在、他の牌譜を処理中です。しばらくしてから再度お試しください。"
+  },
+  "짧은 시간에 요청이 많았습니다. 버튼의 대기 시간이 끝나면 다시 이용할 수 있습니다.": {
+    "ko": "짧은 시간에 요청이 많았습니다. 버튼의 대기 시간이 끝나면 다시 이용할 수 있습니다.",
+    "en": "Too many requests in a short time. Try again when the button countdown finishes.",
+    "ja": "短時間にリクエストが集中しました。ボタンの待ち時間が終わると再び利用できます。"
+  },
+  "현재 패보 조회가 몰리고 있습니다. 버튼의 대기 시간이 끝나면 다시 시도해 주세요.": {
+    "ko": "현재 패보 조회가 몰리고 있습니다. 버튼의 대기 시간이 끝나면 다시 시도해 주세요.",
+    "en": "Replay requests are unusually high. Try again when the button countdown finishes.",
+    "ja": "現在、牌譜の取得が混み合っています。ボタンの待ち時間が終わってから再度お試しください。"
   }
 };
 const supported = ['ko','en','ja'];

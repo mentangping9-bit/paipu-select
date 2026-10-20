@@ -4,6 +4,22 @@ const $ = id => document.getElementById(id);
 const parser = globalThis.NagaParser;
 const i18n=globalThis.PaipuI18n, t=i18n.t;
 let authSnapshot=null;
+let retryUntil=0, retryTimer=0;
+function updateConvertButton(){
+ const btn=$('convertUrlBtn');
+ const remaining=Math.max(0,Math.ceil((retryUntil-Date.now())/1000));
+ btn.disabled=busy||remaining>0;
+ if(busy){btn.textContent=t('작혼 패보를 가져오는 중…');return;}
+ if(remaining){const time=remaining>=60?t('{n}분',{n:Math.ceil(remaining/60)}):t('{n}초',{n:remaining});btn.textContent=t('{time} 후 다시 시도',{time});return;}
+ clearInterval(retryTimer);retryTimer=0;btn.textContent=t('패보 자동 변환하고 국 선택하기')+' →';
+}
+function setReplayCooldown(data,response){
+ const seconds=Number(data.retry_after||response.headers.get('Retry-After'));
+ if(!Number.isFinite(seconds)||seconds<1||seconds>3600)return;
+ retryUntil=Date.now()+Math.ceil(seconds)*1000;clearInterval(retryTimer);
+ retryTimer=setInterval(updateConvertButton,1000);updateConvertButton();
+}
+
 let rounds = []; let chosen = new Set(); let mode = 'url'; let latestFile = ''; let busy = false;
 let koreanServerReady = null; let authenticated = false; let sharedReady = false; let serviceSetup = false;
 const operatorMode = new URL(location.href).searchParams.get('setup') === '1';
@@ -27,11 +43,11 @@ function normalizedUrl(text) {
 }
 function validUrl(text){try{normalizedUrl(text);return true;}catch{return false;}}
 
-async function loadFromUrl(){if(busy)return;clearError();let value;
+async function loadFromUrl(){if(busy||Date.now()<retryUntil)return;clearError();let value;
 try { value=normalizedUrl($('paipuInput').value); }
 catch(e){alertError(i18n.error(e.message));return;}
 // Keep the original pasted caption in the input so it is not lost.
- busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent=t('작혼 패보를 가져오는 중…');try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),110000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===401){await refreshAuth();const panel=$('authPanel').hidden?$('sharedSetup'):$('authPanel');panel.scrollIntoView({behavior:'smooth',block:'center'});toast(sharedReady?t('공용 계정 연결 상태를 확인해 주세요.'):apiError(data,response.status));}throw Error(apiError(data,response.status));}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?t('110초 동안 서버 응답이 없습니다.'):i18n.error(e.message);if(e instanceof TypeError){$('backendDetail').textContent=t('변환 서버에 연결할 수 없습니다.');$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;btn.disabled=false;btn.textContent=t('패보 자동 변환하고 국 선택하기')+' →';}}
+ busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent=t('작혼 패보를 가져오는 중…');try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),150000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===429||response.status===503)setReplayCooldown(data,response);if(response.status===401){await refreshAuth();const panel=$('authPanel').hidden?$('sharedSetup'):$('authPanel');panel.scrollIntoView({behavior:'smooth',block:'center'});toast(sharedReady?t('공용 계정 연결 상태를 확인해 주세요.'):apiError(data,response.status));}throw Error(apiError(data,response.status));}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?t('150초 동안 서버 응답이 없습니다.'):i18n.error(e.message);if(e instanceof TypeError){$('backendDetail').textContent=t('변환 서버에 연결할 수 없습니다.');$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;updateConvertButton();}}
 async function copyOutput(){
  const text=$('outputArea').value;
  try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');return true;}
@@ -61,6 +77,9 @@ $('urlTab').onclick=()=>switchTab('url');$('fileTab').onclick=()=>switchTab('fil
 $('resetBtn').onclick=()=>{$('inputPanel').hidden=false;$('roundPanel').hidden=true;$('resultPanel').hidden=true;clearError();$('inputPanel').scrollIntoView({behavior:'smooth'});};$('allBtn').onclick=()=>setChosen(()=>true);$('noneBtn').onclick=()=>setChosen(()=>false);$('eastBtn').onclick=()=>setChosen(r=>r.roundNo<4);$('southBtn').onclick=()=>setChosen(r=>r.roundNo>=4&&r.roundNo<8);$('generateBtn').onclick=buildOutput;$('copyBtn').onclick=copyOutput;$('downloadBtn').onclick=saveOutput;$('editBtn').onclick=()=>{$('resultPanel').hidden=true;$('roundPanel').hidden=false;};
 // Server-backed Yostar authentication; no passwords and no session token in JS storage.
 function apiError(data,status){
+ if(data.code==='REPLAY_BUSY')return t('현재 다른 패보를 처리 중입니다. 잠시 후 다시 시도해 주세요.');
+ if(data.code==='VISITOR_RATE_LIMITED')return t('짧은 시간에 요청이 많았습니다. 버튼의 대기 시간이 끝나면 다시 이용할 수 있습니다.');
+ if(data.code==='SERVICE_RATE_LIMITED')return t('현재 패보 조회가 몰리고 있습니다. 버튼의 대기 시간이 끝나면 다시 시도해 주세요.');
  const message=i18n.error(data.error||t('요청에 실패했습니다. 잠시 후 다시 시도해 주세요.'));
  const code=typeof data.code==='string'&&/^[A-Z_]+$/.test(data.code)?data.code:'';
  return message+` (HTTP ${status}${code?' · '+code:''}${Number.isInteger(data.server_code)&&data.server_code?' · '+data.server_code:''})`;
@@ -142,7 +161,7 @@ async function detectKoreanProvider(){
 document.addEventListener('paipu-language-change',()=>{
  clearError();$('toast').hidden=true;
  if(authSnapshot)renderAuth(authSnapshot);
- if(!busy)$('convertUrlBtn').textContent=t('패보 자동 변환하고 국 선택하기')+' →';
+ updateConvertButton();
  if(!$('verifyBtn').disabled)$('verifyBtn').textContent=t('로그인');
  if(rounds.length){renderRounds();$('matchTitle').textContent=t(latestFile);if(!$('resultPanel').hidden)buildOutput();}
 });

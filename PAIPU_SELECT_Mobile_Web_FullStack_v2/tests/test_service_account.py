@@ -112,7 +112,9 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
             assert len(json.load(post(visitor,'/api/convert',{'url':URL}))['log']) == 10
             # Simulate a new process loading only the encrypted file.
             restored = ServiceAccount('service@example.com','kr',server.Session,manager.vault)
-            with patch.object(server,'service_account',restored):
+            from replay_admission import ReplayAdmission
+            # A process restart also loses the nonpersistent replay cache.
+            with patch.object(server,'service_account',restored), patch.object(server,'replay_admission',ReplayAdmission()):
                 assert len(json.load(post(visitor,'/api/convert',{'url':URL}))['log']) == 10
             assert manager.vault.load()['token'] == 'rotated-token'
     finally:
