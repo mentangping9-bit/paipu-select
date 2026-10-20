@@ -10,9 +10,11 @@ import json
 import aiohttp
 
 REGIONS = {
-    # Configured as in Soulless 0.3.2, not a shared JP-MJ issuer.
+    # KR/EN retain their established issuers. JP uses JP-MJ from the game
+    # migration URL and Mahjong-Replay-Converter; JP-MAJONGSOUL is rejected
+    # by the live SDK with PROJECT_NOT_EXIST (300200).
     "kr": ("KR", "KR-MAJONGSOUL", "kr", "https://jp-sdk-api.yostarplat.com"),
-    "jp": ("JP", "JP-MAJONGSOUL", "jp", "https://jp-sdk-api.yostarplat.com"),
+    "jp": ("JP", "JP-MJ", "ja", "https://jp-sdk-api.yostarplat.com"),
     "en": ("US", "US-MAJONGSOUL", "en", "https://en-sdk-api.yostarplat.com"),
 }
 
@@ -60,7 +62,10 @@ def regional_client(region: str, device_id: str = ""):
                 raise RemoteReplayError('Yostar 응답 형식 오류입니다.') from None
             if code != 200:
                 # Provider messages can echo submitted values. Keep only a code.
-                raise YostarApiError(code, 'Authentication rejected')
+                error = YostarApiError(code, 'Authentication rejected')
+                error.stage = {'yostar/send-code':'send_code', 'yostar/get-auth':'exchange_code',
+                               'user/login':'sdk_login', 'user/quick-login':'sdk_refresh'}.get(endpoint, 'sdk')
+                raise error
             return payload
 
         async def send_email_code(self, email):

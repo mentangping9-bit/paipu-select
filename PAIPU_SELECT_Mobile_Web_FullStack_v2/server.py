@@ -278,6 +278,10 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
     if isinstance(error, AccountsCooling):
         return 429, {'code':'UPSTREAM_REPLAY_LIMITED', 'retry_after':error.retry_after,
                      'error':'조회 계정이 쉬는 중입니다. 대기 후 다시 시도해 주세요.'}
+    if type(error).__name__ == 'YostarApiError' and error.code == 300200:
+        return 503, {'code':'SDK_PROJECT_CONFIG_ERROR', 'server_code':300200,
+                     'stage':getattr(error, 'stage', 'sdk'),
+                     'error':'Yostar 인증 서비스의 프로젝트 설정이 올바르지 않습니다. 운영자 점검이 필요합니다.'}
     if type(error).__name__ == 'YostarApiError':
         return 502, {'code': 'SDK_REFRESH_REJECTED', 'server_code': error.code,
                      'error': 'Yostar가 저장된 세션의 자동 인증을 거부했습니다. 인증 정보는 보존했습니다. 잠시 후 다시 시도하고, 계속 실패하면 운영자 설정에서 이메일 재인증해 주세요.'}
@@ -468,7 +472,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.3.2',
+                                  'version': '3.3.3',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
@@ -627,6 +631,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_reply(401, {'error': '저장된 인증 세션을 사용할 수 없습니다. 이메일 인증을 다시 진행해 주세요.', 'needs_auth': True})
             if typ in ('GameError', 'YostarApiError', 'RemoteReplayError', 'ReplayNotFoundError',
                        'AuthenticationRequired', 'VerificationCodeRequired'):
+                if action.startswith('/api/auth') and typ == 'YostarApiError' and getattr(exc, 'code', 0) == 300200:
+                    status, data = public_fetch_error(exc)
+                    return self.json_reply(status, data)
                 if action.startswith('/api/auth'):
                     return self.json_reply(502, {'code': 'YOSTAR_AUTH_FAILED',
                                                  'error': 'Yostar 이메일 인증에 실패했습니다. 인증코드와 계정 지역을 확인해 주세요.',

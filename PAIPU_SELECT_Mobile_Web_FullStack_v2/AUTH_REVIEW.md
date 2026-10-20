@@ -176,3 +176,18 @@ The private upload is not committed to this public repository. Tests use generic
 settlement examples to cover deposits, honba, original detail preservation and
 ambiguous payment rejection. Authenticated NAGA server acceptance is still not
 claimed by these client-side checks.
+
+
+## JP SDK project correction (2026-10-20, 3.3.3)
+
+The older Soulless JP identifier JP-MAJONGSOUL is not accepted by the
+current JP SDK. Its PROJECT_NOT_EXIST constant is 300200 in the client
+YoStar.SDK.ResultCode. Mahjong-Replay-Converter uses JP-MJ/ja, and the
+extracted game UI_Entrance migration URL also identifies pid=JP-MJ.
+A bounded live diagnostic sent empty Account/Code to get-auth, without
+sending mail or submitting any user's OTP: JP-MAJONGSOUL returned 300200;
+JP-MJ returned CLIENT_PARAMETER_ERROR (100400), as expected for empty fields.
+This verifies recognition of the project, not a successful account login.
+Use JP-MJ/ja only for JP; preserve the working KR and EN issuer mappings.
+Return a server configuration error for 300200 instead of blaming an OTP.
+Full JP OTP exchange and game retrieval still need live completion.

@@ -32,6 +32,7 @@ const messages = {
   "패보 조회 성공 확인": {"ko": "패보 조회 성공 확인", "en": "Replay retrieval verified", "ja": "牌譜取得成功を確認済み"},
   "인증 완료 · 조회 확인 전": {"ko": "인증 완료 · 조회 확인 전", "en": "Authenticated; retrieval not yet verified", "ja": "認証済み・取得は未確認"},
   "조회 계정 {n}에서 패보를 가져와 변환하고 있습니다.": {"ko": "조회 계정 {n}에서 패보를 가져와 변환하고 있습니다.", "en": "Fetching and converting with replay account {n}.", "ja": "取得用アカウント{n}で牌譜を取得・変換しています。"},
+  "Yostar 인증 서비스의 프로젝트 설정이 올바르지 않습니다. 운영자 점검이 필요합니다.": {"ko": "Yostar 인증 서비스의 프로젝트 설정이 올바르지 않습니다. 운영자 점검이 필요합니다.", "en": "The server’s Yostar project configuration is invalid. The operator needs to fix it.", "ja": "サーバーのYostarプロジェクト設定が正しくありません。運営者による修正が必要です。"},
   "패보 셀렉터 · 작혼 → NAGA": {
     "ko": "패보 셀렉터 · 작혼 → NAGA",
     "en": "PAIPU SELECT · Mahjong Soul → NAGA",

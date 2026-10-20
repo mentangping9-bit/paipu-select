@@ -60,7 +60,8 @@ def test_routes_and_download_urls_reject_untrusted_addresses():
 
 
 @pytest.mark.asyncio
-async def test_sdk_http_signature_and_token_exchange(aiohttp_server_unused=None):
+@pytest.mark.parametrize('region,pid,language', [('kr','KR-MAJONGSOUL','kr'),('jp','JP-MJ','ja'),('en','US-MAJONGSOUL','en')])
+async def test_sdk_http_signature_and_token_exchange(region,pid,language):
     # Real HTTP serialization to a local SDK stub, including Authorization signature.
     import hashlib,json
     from aiohttp import web
@@ -78,14 +79,24 @@ async def test_sdk_http_signature_and_token_exchange(aiohttp_server_unused=None)
     runner=web.AppRunner(app);await runner.setup()
     site=web.TCPSite(runner,'127.0.0.1',0);await site.start()
     try:
-        client=regional_client('kr','fixed-device')
+        client=regional_client(region,'fixed-device')
         client.base_url=f'http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}'
         await client.send_email_code('example@example.com')
         session=await client.exchange_email_code('example@example.com','123456')
         assert session.token=='device-session' and session.device_id=='fixed-device'
         assert seen[0][1]=={'Account':'example@example.com'}
         assert seen[2][1]=={'Type':'yostar','OpenID':'example@example.com','Token':'otp-exchange','Secret':'','CheckAccountPlus':0}
-        assert all(item[2]['PID']=='KR-MAJONGSOUL' for item in seen)
+        assert all(item[2]['PID']==pid and item[2]['Lang']==language for item in seen)
         assert all('Token' not in item[2] for item in seen)
     finally:
         await runner.cleanup()
+
+
+def test_project_not_found_is_server_configuration_error_not_invalid_otp():
+    from server import public_fetch_error
+    from paipu_vendor.mahjong_url_parser.sources.yostar import YostarApiError
+    error=YostarApiError(300200,'private-provider-message')
+    error.stage='exchange_code'
+    status,data=public_fetch_error(error)
+    assert status==503 and data['code']=='SDK_PROJECT_CONFIG_ERROR'
+    assert data['stage']=='exchange_code' and 'private-provider-message' not in str(data)
