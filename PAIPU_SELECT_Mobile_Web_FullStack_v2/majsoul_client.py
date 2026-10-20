@@ -71,7 +71,10 @@ def select_gateway_routes(routes, authority):
             continue
         result.append((match[1] != authority, str(item.get("order", 0)), match[1], rid))
     result.sort()
-    return [("wss://" + host, rid) for _, _, host, rid in result]
+    # JP game NetRouteGroup_Entrance supplies tail="gateway"; NetRoute.Connect
+    # appends it to the route domain. Preserve the established KR/EN path.
+    tail = "/gateway" if authority.startswith("jp") else ""
+    return [("wss://" + host + tail, rid) for _, _, host, rid in result]
 
 
 async def bootstrap(profile: Profile):

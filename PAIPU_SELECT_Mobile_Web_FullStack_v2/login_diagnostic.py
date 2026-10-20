@@ -2,7 +2,7 @@
 import asyncio
 from contextlib import suppress
 
-REVISION = 'jp-oauth-20261020-1'
+REVISION = 'jp-oauth-20261020-jp-gateway'
 
 
 async def probe_login(session, region):

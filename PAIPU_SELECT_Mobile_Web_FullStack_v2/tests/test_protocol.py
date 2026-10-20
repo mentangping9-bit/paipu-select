@@ -100,3 +100,8 @@ def test_project_not_found_is_server_configuration_error_not_invalid_otp():
     status,data=public_fetch_error(error)
     assert status==503 and data['code']=='SDK_PROJECT_CONFIG_ERROR'
     assert data['stage']=='exchange_code' and 'private-provider-message' not in str(data)
+
+
+def test_jp_gateway_matches_official_entrance_tail():
+    routes=[{"id":"jp-1","domain":"jpgs.mahjongsoul.com:443","ssl":True}]
+    assert select_gateway_routes(routes,"jpgs.mahjongsoul.com")==[("wss://jpgs.mahjongsoul.com/gateway","jp-1")]
