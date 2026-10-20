@@ -108,7 +108,7 @@ function openNaga(){
  // Open during the tap event, before awaiting clipboard permission on iOS.
  // Never access NAGA cookies or call its analysis/charge API.
  const copied=copyOutput(); // Request clipboard access while this tab still has focus.
- window.open('https://naga.dmv.nico/naga_report/order_form/','_blank','noopener,noreferrer');
+ window.open('https://naga.dmv.nico/naga_report/order_form/?show_tab=1','_blank','noopener,noreferrer');
  return copied;
 }
 function saveOutput(){const url=URL.createObjectURL(new Blob([$('outputArea').value],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='NAGA_selected_rounds.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
