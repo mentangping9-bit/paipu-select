@@ -19,6 +19,8 @@
       <div class="panel-head"><div><span class="mini">STEP 01 / IMPORT</span><h2>패보 불러오기</h2></div><div class="indicator"> <span class="indicator-bubble"></span> 4인 마작 전용</div></div>
       <div class="tabbar" role="tablist" aria-label="패보 입력 방법"><button id="urlTab" class="tab active" role="tab" aria-selected="true" type="button">작혼 패보 링크</button><button id="fileTab" class="tab" role="tab" aria-selected="false" type="button">JSON 파일</button></div>
       <div id="urlMode" class="input-content"><label for="paipuInput" class="field-label">작혼 공유 URL</label><textarea id="paipuInput" rows="2" spellcheck="false" placeholder="작혼 패보:https://mahjongsoul.game.yo-star.com/?paipu=..." autocomplete="off"></textarea><p class="hint">한국어·日本語·English로 복사한 작혼 패보 공유 문구 전체를 그대로 붙여넣어도 됩니다. Yostar 인증은 최초 1회 또는 세션 만료 시 진행합니다.</p>
+      <div class="notice" id="sharedReady" hidden><strong>공용 패보 조회 계정 연결됨</strong><p>로그인 없이 작혼 공유 링크를 넣어 주세요.</p><a class="linkbtn" href="?setup=1">운영자 인증 설정</a></div>
+      <div class="notice" id="sharedSetup" hidden><strong>공용 조회 계정 설정</strong><p id="sharedSetupDetail"></p><a class="linkbtn" href="?setup=1">운영자 인증 설정</a></div>
       <div class="auth-box" id="authPanel">
         <div class="auth-title"><span class="auth-circle">🔐</span><div><strong>Yostar 계정 인증</strong><small id="authStatus">작혼 패보를 읽기 위한 이메일 인증</small></div></div>
         <label class="field-label" for="regionSelect">내 Yostar 계정의 인증 지역</label>
@@ -33,7 +35,7 @@
           <div id="verifyRow" hidden><label for="codeInput" class="field-label">이메일로 받은 인증코드</label><div class="auth-fields"><input id="codeInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="인증코드"><button id="verifyBtn" type="button" class="btn outline">로그인</button></div></div>
         </div>
         <div id="authLoggedIn" hidden><span id="signedInEmail"></span><button id="logoutBtn" type="button" class="linkbtn">로그아웃</button></div>
-        <p class="small auth-info">Yostar 공식 인증 메일을 사용합니다. 비밀번호는 요구하지 않으며 로그인 세션은 서버 메모리에서 2시간 유지됩니다.</p>
+        <p class="small auth-info" id="authInfo">Yostar 공식 인증 메일을 사용합니다. 비밀번호는 요구하지 않으며 개인 로그인 세션은 서버 메모리에서 2시간 유지됩니다.</p>
       </div>
       <button type="button" id="convertUrlBtn" class="btn primary full">패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span></button>
       <div id="backendInfo" class="notice" hidden><strong>연결 오류</strong><p id="backendDetail"></p></div>

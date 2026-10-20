@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from service_account import ServiceAccount, SessionVault
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -58,6 +59,21 @@ class Session:
 sessions: dict[str, Session] = {}
 auth_attempts: dict[str, list[float]] = {}
 lock = threading.RLock()
+
+
+def configure_service_account():
+    email = os.getenv('PAIPU_SERVICE_EMAIL', '').strip().lower()
+    region = os.getenv('PAIPU_SERVICE_REGION', 'kr').strip().lower()
+    if email and (not EMAIL.fullmatch(email) or region not in ('kr', 'jp', 'en')):
+        raise ValueError('공용 계정 환경 설정이 올바르지 않습니다.')
+    path, key = os.getenv('PAIPU_ACCOUNT_FILE', ''), os.getenv('PAIPU_ACCOUNT_KEY', '')
+    if bool(path) != bool(key):
+        raise ValueError('공용 계정 저장 경로와 암호화 키를 함께 설정해야 합니다.')
+    vault = SessionVault(path, key, PUBLIC) if path else None
+    return ServiceAccount(email, region, Session, vault)
+
+
+service_account = configure_service_account()
 
 
 def extract_share_url(text: str) -> str:
@@ -155,9 +171,12 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
     from regional_auth import regional_client
     from majsoul_client import fetch_record
     reference = parse_replay_url(extract_share_url(text))
-    if not session.operation.acquire(blocking=False):
+    shared = service_account.owns(session)
+    if not session.operation.acquire(timeout=5 if shared else 0):
         raise ValueError("같은 계정의 패보를 조회하고 있습니다. 완료 후 다시 시도해 주세요.")
     async def work():
+        if shared and not service_account.owns(session):
+            raise ValueError('공용 계정이 갱신되었습니다. 다시 조회해 주세요.')
         fresh = bool(session.fresh_token_at and time.monotonic() - session.fresh_token_at < 300)
         if fresh:
             sdk = YostarSession(session.uid, session.token, session.device_id)
@@ -167,6 +186,8 @@ def fetch_from_mahjongsoul(text: str, session: Session) -> dict:
         with lock:
             session.uid, session.token, session.device_id = sdk.uid, sdk.token, sdk.device_id
             session.fresh_token_at = 0
+        if service_account.owns(session):
+            service_account.save(session)
         payload = await fetch_record(reference.replay_id, sdk, session.region)
         with lock:
             session.game_verified = True
@@ -305,7 +326,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.json_reply(200, {'authenticated': bool(s and s.uid and s.token),
                                   'email': s.email if s and s.uid else '',
                                   'region': s.region if s and s.uid else 'kr',
-                                  'game_authenticated': bool(s and s.game_verified)})
+                                  'game_authenticated': bool(s and s.game_verified),
+                                  **service_account.status()})
             return
         self.path = urlsplit(self.path).path
         if self.path == '/':
@@ -314,6 +336,8 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         action = urlsplit(self.path).path
+        s = None
+        held_operation = None
         if action not in ('/api/auth/send-code', '/api/auth/verify', '/api/auth/logout', '/api/convert'):
             return self.json_reply(404, {'error': '없는 API입니다.'})
         try:
@@ -328,6 +352,9 @@ class Handler(SimpleHTTPRequestHandler):
                 if not package_ready():
                     return self.json_reply(503, {'error': '서버 변환 라이브러리가 설치되지 않았습니다.'})
                 sid, s = self._get_session(create=True)
+                if not s.operation.acquire(blocking=False):
+                    raise ValueError('인증 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.')
+                held_operation = s.operation
                 if s.code_sent and time.monotonic() - s.code_sent < 60:
                     raise ValueError('인증 메일 재전송은 60초 후 가능합니다.')
                 # Per-address and per-client basic throttling, no email logs.
@@ -346,9 +373,27 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_reply(200, {'ok': True, 'message': 'Yostar 인증 메일을 보냈습니다.'}, sid=sid)
 
             sid, s = self._get_session()
+            if action == '/api/convert':
+                # Resolve and validate before touching the shared upstream account.
+                url = extract_share_url(str(body.get('url', '')))
+                _, host = parse_url(url)
+                if host in ('game.maj-soul.com', 'game.maj-soul.net'):
+                    raise ValueError('중국 서버 링크는 별도의 중국 서버 계정 인증이 필요합니다.')
+                s = service_account.ready_session() or s
+                if not s or not s.uid or not s.token:
+                    message = ('공용 조회 계정의 최초 인증이 필요합니다. 운영자 설정 화면에서 인증해 주세요.'
+                               if service_account.configured else '먼저 Yostar 이메일 인증을 완료해 주세요.')
+                    return self.json_reply(401, {'error': message, 'needs_auth': True})
+                if service_account.owns(s):
+                    _throttle('public-fetch:' + self.client_address[0], 30, 60)
+                result = fetch_from_mahjongsoul(url, s)
+                return self.json_reply(200, result)
             if not s:
                 return self.json_reply(401, {'error': 'Yostar 이메일 인증을 진행해 주세요.'})
             if action == '/api/auth/verify':
+                if not s.operation.acquire(blocking=False):
+                    raise ValueError('인증 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.')
+                held_operation = s.operation
                 code = str(body.get('code', '')).strip()
                 if not re.fullmatch(r'\d{4,10}', code) or not s.email or not s.device_id:
                     raise ValueError('이메일 인증코드를 입력해 주세요.')
@@ -361,20 +406,13 @@ class Handler(SimpleHTTPRequestHandler):
                     s.uid, s.token, s.device_id = verified.uid, verified.token, verified.device_id
                     s.fresh_token_at = time.monotonic()
                     s.game_verified = False
-                return self.json_reply(200, {'ok': True, 'authenticated': True}, sid=sid)
+                enrolled = service_account.enroll(s)
+                return self.json_reply(200, {'ok': True, 'authenticated': True,
+                                             'shared_enrolled': enrolled}, sid=sid)
             if action == '/api/auth/logout':
                 with lock:
                     sessions.pop(sid, None)
                 return self.json_reply(200, {'ok': True})
-            if action == '/api/convert':
-                if not s.uid or not s.token:
-                    return self.json_reply(401, {'error': '먼저 Yostar 이메일 인증을 완료해 주세요.', 'needs_auth': True})
-                url = extract_share_url(str(body.get('url', '')))
-                _, host = parse_url(url)
-                if host in ('game.maj-soul.com', 'game.maj-soul.net'):
-                    raise ValueError('중국 서버 링크는 별도의 중국 서버 계정 인증이 필요합니다.')
-                result = fetch_from_mahjongsoul(url, s)
-                return self.json_reply(200, result)
         except ValueError as exc:
             return self.json_reply(400, {'error': str(exc)})
         except asyncio.TimeoutError:
@@ -384,6 +422,7 @@ class Handler(SimpleHTTPRequestHandler):
             typ = type(exc).__name__
             if typ == 'VerificationCodeRequired':
                 if s:
+                    service_account.invalidate(s)
                     with lock:
                         s.uid, s.token, s.game_verified = '', '', False
                 return self.json_reply(401, {'error': '인증 세션이 만료되었습니다. 이메일 인증을 다시 진행해 주세요.', 'needs_auth': True})
@@ -398,6 +437,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json_reply(status, data)
             print('Internal error:', typ)
             return self.json_reply(500, {'error': '서버 내부 오류가 발생했습니다.'})
+        finally:
+            if held_operation:
+                held_operation.release()
 
 
 def probe_gateway():

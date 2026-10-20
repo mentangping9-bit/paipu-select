@@ -3,7 +3,8 @@
 const $ = id => document.getElementById(id);
 const parser = globalThis.NagaParser;
 let rounds = []; let chosen = new Set(); let mode = 'url'; let latestFile = ''; let busy = false;
-let koreanServerReady = null; let authenticated = false;
+let koreanServerReady = null; let authenticated = false; let sharedReady = false;
+const operatorMode = new URL(location.href).searchParams.get('setup') === '1';
 function alertError(message){const el=$('errorBox');el.textContent=message;el.hidden=false;}
 function clearError(){$('errorBox').hidden=true;$('backendInfo').hidden=true;}
 let toastTimer=0;
@@ -28,7 +29,7 @@ async function loadFromUrl(){if(busy)return;clearError();let value;
 try { value=normalizedUrl($('paipuInput').value); }
 catch(e){alertError(e.message);return;}
 // Keep the original pasted caption in the input so it is not lost.
- busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent='작혼 패보를 가져오는 중…';try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),110000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===401){$('authPanel').scrollIntoView({behavior:'smooth',block:'center'});toast('먼저 Yostar 이메일 인증을 완료하세요.');}throw Error(data.error||`서버 오류 HTTP ${response.status}`);}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?'110초 동안 서버 응답이 없습니다.':e.message;if(e instanceof TypeError){$('backendDetail').textContent='변환 서버에 연결할 수 없습니다.';$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;btn.disabled=false;btn.innerHTML='패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span>';}}
+ busy=true;const btn=$('convertUrlBtn');btn.disabled=true;btn.textContent='작혼 패보를 가져오는 중…';try{const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),110000);let response;try{response=await fetch('/api/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:controller.signal});}finally{clearTimeout(timeout);}const data=await response.json().catch(()=>({}));if(!response.ok){if(response.status===401){await refreshAuth();const panel=$('authPanel').hidden?$('sharedSetup'):$('authPanel');panel.scrollIntoView({behavior:'smooth',block:'center'});toast(sharedReady?'공용 계정 연결 상태를 확인해 주세요.':data.error||'Yostar 이메일 인증이 필요합니다.');}throw Error(data.error||`서버 오류 HTTP ${response.status}`);}importData(data,'작혼 공유 패보');}catch(e){const msg=e.name==='AbortError'?'110초 동안 서버 응답이 없습니다.':e.message;if(e instanceof TypeError){$('backendDetail').textContent='변환 서버에 연결할 수 없습니다.';$('backendInfo').hidden=false;}alertError(msg);}finally{busy=false;btn.disabled=false;btn.innerHTML='패보 자동 변환하고 국 선택하기 <span class="arrow-icon">→</span>';}}
 async function copyOutput(){
  const text=$('outputArea').value;
  try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');return true;}
@@ -67,11 +68,21 @@ async function refreshAuth(){
     const res=await fetch('/api/auth/status',{credentials:'same-origin',cache:'no-store'});
     const data=await res.json();
     authenticated=!!data.authenticated;
+    sharedReady=!!data.shared_ready;
+    $('sharedReady').hidden=!sharedReady||operatorMode;
+    $('sharedSetup').hidden=!data.shared_configured||(sharedReady&&!operatorMode);
+    $('authPanel').hidden=!!data.shared_configured&&!operatorMode;
+    if(data.shared_configured){
+      $('sharedSetupDetail').textContent=operatorMode
+        ? '서버에 지정한 공용 계정 이메일로 인증하면 방문자가 로그인 없이 패보를 조회할 수 있습니다.'+(data.shared_session_storage==='memory'?' 현재 메모리 저장 모드이므로 서버 재시작 후에는 운영자 재인증이 필요합니다.':' 세션은 서버의 암호화 저장 파일에서 복원됩니다.')
+        : '공용 계정의 최초 인증 또는 재인증이 필요합니다. 운영자 설정 화면에서 연결해 주세요.';
+      if(operatorMode)$('authInfo').textContent='지정된 공용 계정만 등록됩니다. 일반 방문자에게 이메일·토큰은 공개되지 않습니다. 인증이 만료되면 운영자가 다시 인증해야 합니다.';
+    }
     $('authLoggedOut').hidden=authenticated;
     $('authLoggedIn').hidden=!authenticated;
     $('signedInEmail').textContent=(data.email||'로그인됨')+' · '+String(data.region||'kr').toUpperCase();
     if(authenticated){$('regionSelect').value=data.region||'kr';$('regionSelect').disabled=true;}else{$('regionSelect').disabled=false;}
-    $('authStatus').textContent=authenticated?(data.game_authenticated?'게임 로그인 및 패보 조회 확인됨':'이메일 인증 완료 · 게임 로그인은 조회 시 확인'):'작혼 패보를 읽기 위한 이메일 인증';
+    $('authStatus').textContent=operatorMode&&data.shared_configured?(sharedReady?'공용 조회 계정 연결됨':'공용 계정 최초 인증 필요'):authenticated?(data.game_authenticated?'게임 로그인 및 패보 조회 확인됨':'이메일 인증 완료 · 게임 로그인은 조회 시 확인'):'작혼 패보를 읽기 위한 이메일 인증';
   }catch(e){authenticated=false;}
 }
 function authError(e){alertError(e.message);$('authPanel').scrollIntoView({behavior:'smooth',block:'center'});}

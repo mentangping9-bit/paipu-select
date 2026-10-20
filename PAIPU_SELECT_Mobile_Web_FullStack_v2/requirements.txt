@@ -6,3 +6,4 @@ platformdirs>=4.3,<5
 keyring>=25,<26
 websockets>=13,<16
 UnityPy==1.25.4
+cryptography==50.0.2
