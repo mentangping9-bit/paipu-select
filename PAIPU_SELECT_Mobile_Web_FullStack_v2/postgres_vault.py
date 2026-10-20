@@ -71,7 +71,11 @@ class PostgresVault:
             if settings.get('hostaddr') or settings.get('service'):
                 raise ValueError()
             if host not in ('localhost', '127.0.0.1', '::1'):
-                settings.update(sslmode='verify-full', sslrootcert='system')
+                # Bundled libpq/OpenSSL may have no usable system CA path on
+                # Render. Use the maintained Mozilla CA bundle explicitly;
+                # retain certificate AND hostname verification/channel binding.
+                import certifi
+                settings.update(sslmode='verify-full', sslrootcert=certifi.where())
             settings.update(connect_timeout='10', application_name='paipu-session-vault',
                             options='-c statement_timeout=10000 -c lock_timeout=5000')
             self.cipher = Fernet(key.encode('ascii'))

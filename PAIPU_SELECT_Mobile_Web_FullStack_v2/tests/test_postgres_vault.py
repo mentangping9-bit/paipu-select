@@ -101,9 +101,10 @@ def test_ciphertext_only_restart_and_fail_closed(database):
 
 
 def test_direct_tls_connection_required():
+    import certifi
     store = vault()
     assert store.settings['sslmode'] == 'verify-full'
-    assert store.settings['sslrootcert'] == 'system'
+    assert store.settings['sslrootcert'] == certifi.where()
     for dsn in ['postgresql://u:p@ep-test-pooler.aws.neon.tech/db',
                 'postgresql://u:p@host:6543/db', 'service=unexpected',
                 'host=expected hostaddr=127.0.0.1']:
