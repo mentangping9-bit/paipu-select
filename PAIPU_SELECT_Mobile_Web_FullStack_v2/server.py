@@ -340,7 +340,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.1.0',
+                                  'version': '3.2.0',
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
                                   'resolved_versions': version_status(),
@@ -360,7 +360,7 @@ class Handler(SimpleHTTPRequestHandler):
             # A cached script from the previous deploy must not silently hide a
             # newly configured authentication mode. Bind assets to this build.
             html = (PUBLIC / 'index.html').read_text(encoding='utf-8')
-            for name in ('app.js', 'converter.js', 'link-utils.js', 'styles.css'):
+            for name in ('app.js', 'converter.js', 'link-utils.js', 'i18n.js', 'styles.css'):
                 html = html.replace(f'./{name}"', f'./{name}?v={BUILD}"')
             raw = html.encode('utf-8')
             self.send_response(200)

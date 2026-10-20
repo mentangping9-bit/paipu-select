@@ -135,7 +135,12 @@
     }
     return r;
   }
-  function paymentScore(round, changes, details) {
+  function scoreDisplay(kind,a,b,language='ko') {
+    const number=n=>n.toLocaleString(language==='ja'?'ja-JP':language==='en'?'en-US':'ko-KR');
+    return language==='en'?`${kind==='ron'?'Ron':'Tsumo'} ${number(a)}${b===undefined?'':b===0?' each':'/'+number(b)} points`:language==='ja'?`${kind==='ron'?'ロン':'ツモ'} ${number(a)}${b===undefined?'':b===0?'':'/'+number(b)}点${b===0?'オール':''}`:kind==='ron'?`론 ${number(a)}점`:b===0?`쯔모 ${number(a)}점씩`:`쯔모 ${number(a)}/${number(b)}점`;
+  }
+  function paymentScore(round, changes, details, language='ko') {
+    const display=(kind,a,b)=>scoreDisplay(kind,a,b,language);
     // The export records settlement payments separately from riichi deposits.
     // Derive points from losers, never the winner's gain (which includes sticks).
     // Do not infer fu, han, yaku, or liability from a payment amount.
@@ -153,7 +158,7 @@
       if (changes[payer] >= 0 || changes.some((v,i) => i !== winner && i !== payer && v !== 0)) return null;
       const points = -changes[payer] - honba * 300;
       if (points <= 0 || points % 100 !== 0) return null;
-      return {text: `${points}点`, display: `론 ${points.toLocaleString('ko-KR')}점`};
+      return {text: `${points}点`, display: display('ron',points)};
     }
     const payers = [0,1,2,3].filter(i => i !== winner);
     if (payers.some(i => changes[i] >= 0)) return null;
@@ -161,14 +166,14 @@
     if (payments.some(v => v <= 0 || v % 100 !== 0)) return null;
     if (winner === dealer) {
       if (!payments.every(v => v === payments[0])) return null;
-      return {text: `${payments[0]}点∀`, display: `쯔모 ${payments[0].toLocaleString('ko-KR')}점씩`};
+      return {text: `${payments[0]}点∀`, display: display('tsumo',payments[0],0)};
     }
     const child = payers.filter(i => i !== dealer).map(i => -changes[i] - honba * 100);
     const parent = -changes[dealer] - honba * 100;
     // Standard rounded nondealer payments differ by at most 100 from 2:1.
     // Nonstandard splits/pao need explicit original detail, not a guess.
     if (child[0] !== child[1] || ![2*child[0], 2*child[0]-100].includes(parent)) return null;
-    return {text: `${child[0]}-${parent}点`, display: `쯔모 ${child[0].toLocaleString('ko-KR')}/${parent.toLocaleString('ko-KR')}점`};
+    return {text: `${child[0]}-${parent}点`, display: display('tsumo',child[0],parent)};
   }
   function restoreWinScores(round) {
     const r = JSON.parse(JSON.stringify(round));
@@ -190,7 +195,7 @@
     }
     return {round:r,recovered};
   }
-  function winSummary(round, names) {
+  function winSummary(round, names, language='ko') {
     const result = round[16];
     if (result?.[0] !== '和了') return '';
     const parts = [];
@@ -198,10 +203,15 @@
       const detail = result[i], changes = result[i-1];
       if (!Array.isArray(detail) || detail.length < 4 || !Array.isArray(changes)) continue;
       const winner = detail[0];
-      const score = paymentScore(round,changes,detail);
-      const display = score?.display || String(detail[3]).replaceAll('点','점').replace('∀','씩');
-      const name = Array.isArray(names) ? String(names[winner] || `${winner+1}번`) : `${winner+1}번`;
-      const gain = Number.isSafeInteger(changes[winner]) ? ` · 수입 +${changes[winner].toLocaleString('ko-KR')}점` : '';
+      // Complete recorded scores take precedence over inferred settlement splits.
+      // In a double ron, only one winner may receive the honba payment.
+      const recorded=String(detail[3]).match(/(\d+)(?:-(\d+))?点(∀)?$/);
+      const display = recorded
+        ? scoreDisplay(detail[0]===detail[1]?'tsumo':'ron',Number(recorded[1]),recorded[3]?0:recorded[2]?Number(recorded[2]):undefined,language)
+        : language==='en'?String(detail[3]).replaceAll('符',' fu ').replaceAll('飜',' han ').replaceAll('点',' points').replaceAll('∀',' each')
+        : language==='ko'?String(detail[3]).replaceAll('点','점').replace('∀','씩'):String(detail[3]);
+      const name = Array.isArray(names) ? String(names[winner] || (language==='ko'?`${winner+1}번`:language==='ja'?`${winner+1}番`:`Player ${winner+1}`)) : (language==='ko'?`${winner+1}번`:language==='ja'?`${winner+1}番`:`Player ${winner+1}`);
+      const gain = Number.isSafeInteger(changes[winner]) ? (language==='en'?` · gain +${changes[winner].toLocaleString('en-US')} points`:language==='ja'?` · 収入 +${changes[winner].toLocaleString('ja-JP')}点`:` · 수입 +${changes[winner].toLocaleString('ko-KR')}점`) : '';
       parts.push(`${name} ${display}${gain}`);
     }
     return parts.join(' / ');
@@ -244,5 +254,5 @@
     const text = urlsForSelection(rounds, selectedIds, anonymous);
     return text ? text.split('\n').map(parseUrlJSON) : [];
   }
-  globalThis.NagaParser = Object.freeze({parseText, urlsForSelection, jsonForSelection, isIncompleteWin, parseUrlJSON, collect, MAX_BYTES});
+  globalThis.NagaParser = Object.freeze({parseText, urlsForSelection, jsonForSelection, winSummary, isIncompleteWin, parseUrlJSON, collect, MAX_BYTES});
 })();

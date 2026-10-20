@@ -13,3 +13,10 @@
 #authLoggedIn{display:flex;align-items:center;justify-content:space-between;gap:10px}
 #signedInEmail{font-size:12px;color:var(--teal);overflow-wrap:anywhere}
 @media(max-width:440px){.auth-fields{flex-direction:column}.auth-fields .btn{width:100%}}
+
+/* Native language picker stays usable on narrow screens and with a keyboard. */
+.top-actions{display:flex;align-items:center;gap:12px}.language-picker{display:flex;align-items:center;gap:5px;color:var(--muted)}
+.language-picker select{font:inherit;min-height:42px;max-width:130px;background:#141d31;color:var(--ink);border:1px solid #466176;border-radius:9px;padding:8px;cursor:pointer}
+select:focus-visible{outline:3px solid var(--teal);outline-offset:3px}
+html[lang="en"] .step{white-space:normal}html[lang="en"] h1{letter-spacing:-1.5px}
+@media(max-width:600px){.top-actions{gap:5px}.top-actions .top-pill{display:none}.language-picker select{max-width:108px;font-size:12px}.steps{gap:5px}.step{white-space:normal}.step span{flex-shrink:0}.indicator{white-space:normal;text-align:right}.result-actions.bottom{flex-wrap:wrap}.summary-line{line-height:1.8}}
