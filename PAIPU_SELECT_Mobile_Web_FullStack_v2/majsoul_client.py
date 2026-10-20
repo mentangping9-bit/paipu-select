@@ -114,6 +114,7 @@ async def rpc(stage, call):
     result = await asyncio.wait_for(call, timeout=20)
     code = int(getattr(getattr(result, "error", None), "code", 0))
     if code:
+        print("Game RPC rejected:", stage, code, flush=True)
         raise GameError(stage, code)
     return result
 
@@ -132,6 +133,7 @@ async def login(lobby, session, profile):
         type=oauth_type, access_token=auth.access_token,
     )))
     if not check.has_account:
+        print("Game RPC rejected:", "account_unbound", 0, flush=True)
         raise GameError("account_unbound")
     request = pb.ReqOauth2Login(
         type=oauth_type, access_token=auth.access_token, reconnect=False,
