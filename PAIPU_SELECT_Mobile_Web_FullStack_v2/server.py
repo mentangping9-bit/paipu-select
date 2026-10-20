@@ -340,7 +340,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.0.0-dev',
+                                  'version': '3.1.0',
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
                                   'resolved_versions': version_status(),
