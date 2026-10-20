@@ -509,6 +509,16 @@ def probe_gateway():
 
 
 if __name__ == '__main__':
+    validation_dsn = os.getenv('PAIPU_VALIDATION_DATABASE_URL', '')
+    if validation_dsn:
+        from verify_postgres_vault import verify
+        try:
+            validation = verify(validation_dsn, os.getenv('PAIPU_DATABASE_URL', ''), Session)
+            print('Vault integration validation:', json.dumps(validation), flush=True)
+        except Exception as exc:
+            # No DSN, keys, SQL parameters or raw driver messages in logs.
+            print('Vault integration validation failed:', type(exc).__name__, flush=True)
+            raise SystemExit(1) from None
     threading.Thread(target=probe_gateway, daemon=True).start()
     port = int(os.getenv('PORT', '8765'))
     print(f'Paipu Select started: http://0.0.0.0:{port}')
