@@ -137,7 +137,7 @@
   }
   function scoreDisplay(kind,a,b,language='ko') {
     const number=n=>n.toLocaleString(language==='ja'?'ja-JP':language==='en'?'en-US':'ko-KR');
-    return language==='en'?`${kind==='ron'?'Ron':'Tsumo'} ${number(a)}${b===undefined?'':b===0?' each':'/'+number(b)} points`:language==='ja'?`${kind==='ron'?'ロン':'ツモ'} ${number(a)}${b===undefined?'':b===0?'':'/'+number(b)}点${b===0?'オール':''}`:kind==='ron'?`론 ${number(a)}점`:b===0?`쯔모 ${number(a)}점씩`:`쯔모 ${number(a)}/${number(b)}점`;
+    return language==='en'?`${kind==='ron'?'Ron':'Tsumo'} ${number(a)}${b===undefined||b===0?'':'/'+number(b)} points${b===0?' each':''}`:language==='ja'?`${kind==='ron'?'ロン':'ツモ'} ${number(a)}${b===undefined?'':b===0?'':'/'+number(b)}点${b===0?'オール':''}`:kind==='ron'?`론 ${number(a)}점`:b===0?`쯔모 ${number(a)}점씩`:`쯔모 ${number(a)}/${number(b)}점`;
   }
   function paymentScore(round, changes, details, language='ko') {
     const display=(kind,a,b)=>scoreDisplay(kind,a,b,language);
