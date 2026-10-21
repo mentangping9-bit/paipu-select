@@ -144,14 +144,17 @@ class ReplayQueue:
 
     Queue state/results expire in memory. The durable SDK session is independent.
     No polling operation calls the provider. Limited jobs retry only after a
-    shared cooldown, with at most three provider attempts.
+    shared cooldown, with at most three rate-limit responses. Account failures
+    can try each configured slot once, up to nine slots per replay.
     """
     def __init__(self, admission, error_mapper, *, spacing=6, cooldown=60,
-                 max_pending=20, ttl=600, result_bytes=8*1024*1024, max_wait=1800, metadata=None):
+                 max_pending=100, ttl=600, result_bytes=8*1024*1024, max_wait=1800, metadata=None,
+                 max_account_attempts=9):
         self.admission, self.error_mapper = admission, error_mapper
         self.spacing, self.cooldown = spacing, cooldown
         self.max_pending, self.ttl, self.result_bytes = max_pending, ttl, result_bytes
         self.max_wait = max_wait
+        self.max_account_attempts = max(1, min(9, max_account_attempts))
         self.metadata = metadata or (lambda:{})
         self.provider_pause_until = 0
         self.condition = threading.Condition(admission.lock)
@@ -209,6 +212,8 @@ class ReplayQueue:
             seconds = math.ceil(self._delay()+(position-1)*self.spacing)
         return 202, {'job':job['watchers'][visitor], 'state':job['state'],
                      'position':position, 'wait_seconds':seconds,
+                     'waiting_count':len(self.pending), 'processing_count':int(self.running is not None),
+                     'retrying':bool(job.get('retrying')), 'attempts':job['attempts'],
                      'cooldown':self.pause_until > self.admission.clock(),
                      'poll_after':2, 'limit_per_minute':self.admission.global_per_minute,
                      **(self.metadata() if job['state']=='processing' else {})}
@@ -303,6 +308,7 @@ class ReplayQueue:
                 job['attempts'] += 1
                 fetch = job['fetch']
             retry = False
+            account_retry = False
             try:
                 # Admission still enforces the rolling cap as a second guard.
                 result, _ = self.admission.run(key, 'queue-worker', fetch, charge=False)
@@ -313,16 +319,20 @@ class ReplayQueue:
                 status, error = 200, None
             except Exception as exc:
                 raw = None
+                account_retry = getattr(exc, 'retry_kind', '') == 'account'
                 status, error = self.error_mapper(exc)
                 if getattr(exc, 'stage', None) == 'fetch_record' and getattr(exc, 'code', None) == 540:
                     with self.condition:
                         self.provider_pause_until = self.admission.clock()+self.cooldown
                         self.pause_until = self.admission.clock()+max(self.cooldown, getattr(exc, 'retry_after', 0))
-                    retry = job['attempts'] < 3
+                    job['limited_attempts'] = job.get('limited_attempts', 0)+1
+                    retry = (job['limited_attempts'] < 3 and
+                             (not account_retry or getattr(exc, 'can_retry', False)))
                     status, error = 429, {'code':'UPSTREAM_REPLAY_LIMITED',
                         'server_code':540, 'retry_after':math.ceil(max(self.cooldown, getattr(exc, 'retry_after', 0))),
                         'error':'작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.'}
-                elif getattr(exc, 'can_retry', False) and job['attempts'] < 3:
+                elif (getattr(exc, 'can_retry', False) and job['attempts'] <
+                      (self.max_account_attempts if getattr(exc, 'retry_kind', '') == 'account' else 3)):
                     retry = True
                 elif type(exc).__name__ == 'AccountsCooling':
                     with self.condition:
@@ -333,6 +343,7 @@ class ReplayQueue:
                 fetch = None
             with self.condition:
                 if retry:
+                    job['retrying'] = account_retry
                     job['state'] = 'queued'
                     self.running = None
                     self.pending.appendleft(key)

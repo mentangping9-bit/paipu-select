@@ -72,8 +72,11 @@ let queueSnapshot=null;
 function renderQueue(data){
  queueSnapshot=data;$('queuePanel').hidden=false;
  $('queueTitle').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});
+ $('queueOverview').textContent=t('대기 {waiting}건 · 처리 중 {processing}건',{
+  waiting:data.waiting_count??0,processing:data.processing_count??0});
  $('queueDetail').textContent=data.state==='processing'?t('작혼 패보를 가져와 변환하고 있습니다.'):
   (data.cooldown?t('작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.'):
+  data.retrying?t('연결되지 않는 조회 계정을 건너뛰고 다른 계정으로 다시 시도합니다.'):
   t('전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.'))+
   (data.wait_seconds>0?' '+t('조회 간격 대기: {n}초 이상',{n:data.wait_seconds}):'');
  $('convertUrlBtn').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});

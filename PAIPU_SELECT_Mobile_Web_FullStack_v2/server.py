@@ -331,7 +331,8 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
 
 
 replay_queue = ReplayQueue(replay_admission, public_fetch_error,
-                           metadata=lambda:{'account_slot':service_pool.active_slot or service_pool.last_slot})
+                           metadata=lambda:{'account_slot':service_pool.active_slot or service_pool.last_slot},
+                           max_account_attempts=len(service_pool.accounts))
 
 class Handler(SimpleHTTPRequestHandler):
     def setup(self):
@@ -499,8 +500,11 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.5.0',
+                                  'version': '3.6.0',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
+                                  'replay_account_rotation': 'round_robin',
+                                  'replay_max_account_attempts': replay_queue.max_account_attempts,
+                                  'replay_queue_capacity': replay_queue.max_pending,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
                                   'resolved_versions': version_status(),
@@ -604,7 +608,7 @@ class Handler(SimpleHTTPRequestHandler):
                     from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
                     key = ('international', parse_replay_url(url).replay_id)
                     status, result, cache = replay_queue.submit(key, self._visitor(),
-                                                        lambda: service_pool.fetch(url, fetch_from_mahjongsoul))
+                                                        service_pool.queued_fetch(url, fetch_from_mahjongsoul))
                     return self.json_reply(status, result, headers={'X-Paipu-Cache':cache})
                 result = fetch_from_mahjongsoul(url, s)
                 return self.json_reply(200, result)

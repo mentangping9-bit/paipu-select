@@ -227,3 +227,123 @@ def test_nine_slots_preserve_existing_sessions_on_refresh_and_restore():
     assert pool.registration_account(9) is restored[8]
     with pytest.raises(ValueError):pool.registration_account(10)
     assert len(pool.flags()['shared_accounts'])==9
+
+
+def nine_accounts():
+    vault = MemoryVault()
+    owners = [ServiceAccount(f'account{i}@example.com', 'jp', Session,
+                             SlotVault(vault, i, 'jp')) for i in range(1, 10)]
+    for a in owners:
+        a.enroll(Session(0, 0, email=a.email, region='jp', uid=a.email,
+                         token='retained-token', device_id='device'))
+    return vault, owners
+
+
+def test_nine_accounts_rotate_and_auth_failures_reach_ninth_without_exposing_error():
+    _, owners = nine_accounts()
+    now = [1000.0]
+    pool = AccountPool(owners, clock=lambda: now[0])
+    seen = []
+    for _ in range(18):
+        pool.fetch('replay', lambda t, s, a: seen.append(a.email) or {'log': []})
+    assert seen == [a.email for a in owners]*2
+    seen.clear()
+    def fetch(t, s, a):
+        seen.append(a.email)
+        if a is not owners[-1]:
+            raise GameError('oauth_auth', 110)
+        return {'log': [9]}
+    queue = ReplayQueue(ReplayAdmission(clock=lambda: now[0]), public_fetch_error,
+                        spacing=6, max_account_attempts=9)
+    _, ticket, _ = queue.submit('one', 'visitor', pool.queued_fetch('replay', fetch))
+    eventually(lambda: len(seen) == 1 and queue.running is None)
+    state = queue.status(ticket['job'], 'visitor')[1]
+    assert state['retrying'] and state['waiting_count'] == 1 and state['processing_count'] == 0
+    assert state['position'] == 1 and 'example.com' not in str(state)
+    for attempt in range(2, 10):
+        advance(queue, now, 1000+(attempt-1)*6)
+        eventually(lambda: len(seen) == attempt and queue.running is None)
+    assert queue.status(ticket['job'], 'visitor') == (200, {'log': [9]})
+    assert seen == [a.email for a in owners]
+    assert all(a.unavailable_reason == 'oauth_auth' for a in owners[:-1])
+    assert pool.fetch('next', lambda t, s, a: a.email) == owners[-1].email
+
+
+def test_sdk_rejections_and_timeouts_preserve_tokens_and_skip_each_slot_once():
+    from paipu_vendor.mahjong_url_parser.sources.yostar import YostarApiError
+    vault, owners = nine_accounts()
+    now = [1000.0]
+    pool = AccountPool(owners, clock=lambda: now[0])
+    seen = []
+    def fetch(t, s, a):
+        seen.append(a.email)
+        if a is owners[0]:
+            raise YostarApiError(123456, 'provider detail must not be public')
+        if a is owners[1]:
+            raise TimeoutError()
+        return {'log': [3]}
+    attempt = pool.queued_fetch('replay', fetch)
+    with pytest.raises(YostarApiError) as sdk:
+        attempt()
+    assert sdk.value.can_retry and sdk.value.retry_kind == 'account'
+    assert owners[0].cooldown_until == 1300
+    with pytest.raises(TimeoutError) as timeout:
+        attempt()
+    assert timeout.value.can_retry and owners[1].cooldown_until == 1060
+    now[0] = 2000  # Earlier slots are healthy again, but already tried for this job.
+    assert attempt() == {'log': [3]}
+    assert seen == [a.email for a in owners[:3]]
+    assert all(a.session.token == 'retained-token' for a in owners)
+    restored = ServiceAccount(owners[0].email, 'jp', Session, SlotVault(vault, 1, 'jp'))
+    assert restored.cooldown_until == 1300 and restored.session.token == 'retained-token'
+
+
+def test_all_nine_sdk_failures_are_bounded_and_protocol_or_bad_replay_does_not_rotate():
+    from paipu_vendor.mahjong_url_parser.sources.yostar import YostarApiError
+    _, owners = nine_accounts()
+    now = [1000.0]
+    pool = AccountPool(owners, clock=lambda: now[0])
+    queue = ReplayQueue(ReplayAdmission(clock=lambda: now[0]), public_fetch_error, spacing=6)
+    seen = []
+    def failed(t, s, a):
+        seen.append(a.email)
+        raise YostarApiError(999, 'hidden')
+    _, ticket, _ = queue.submit('one', 'visitor', pool.queued_fetch('replay', failed))
+    eventually(lambda: len(seen) == 1 and queue.running is None)
+    for attempt in range(2, 10):
+        advance(queue, now, 1000+(attempt-1)*6)
+        eventually(lambda: len(seen) == attempt and queue.running is None)
+    status, error = queue.status(ticket['job'], 'visitor')
+    assert status == 502 and error['code'] == 'SDK_REFRESH_REJECTED'
+    assert len(seen) == len(set(seen)) == 9
+    assert 'hidden' not in str(error) and 'retained-token' not in str(error)
+    now[0] = 2000
+    for stage, code in [('oauth_login', 151), ('fetch_record', 404), ('conversion', 0)]:
+        with pytest.raises(GameError) as caught:
+            pool.fetch('bad', lambda *a: (_ for _ in ()).throw(GameError(stage, code)))
+        assert not getattr(caught.value, 'can_retry', False)
+    assert not any(a.unavailable_reason for a in owners)
+
+
+def test_visible_queue_counts_and_position_track_actual_waiters():
+    entered, release = threading.Event(), threading.Event()
+    queue = ReplayQueue(ReplayAdmission(), public_fetch_error, spacing=0)
+    def fetch():
+        entered.set()
+        assert release.wait(2)
+        return {'log': [1]}
+    try:
+        _, first, _ = queue.submit('one', 'a', fetch)
+        assert entered.wait(1)
+        _, second, _ = queue.submit('two', 'b', lambda: {'log': [2]})
+        _, third, _ = queue.submit('three', 'c', lambda: {'log': [3]})
+        own = queue.status(first['job'], 'a')[1]
+        assert own['state'] == 'processing' and own['processing_count'] == 1
+        for ticket, visitor, position in [(second, 'b', 1), (third, 'c', 2)]:
+            state = queue.status(ticket['job'], visitor)[1]
+            assert state['position'] == position and state['waiting_count'] == 2
+            assert state['processing_count'] == 1 and not state['retrying']
+            assert queue.status(ticket['job'], 'unrelated')[0] == 404
+    finally:
+        release.set()
+    eventually(lambda: queue.status(third['job'], 'c')[0] == 200)

@@ -99,7 +99,7 @@ class ServiceAccount:
                 count = saved.get('rate_limit_count', 1 if cooldown else 0)
                 success = saved.get('last_success_at', 0)
                 reason = saved.get('unavailable_reason', '')
-                if not isinstance(count, int) or not 0 <= count <= 1000 or not isinstance(success, (int,float)) or not 0 <= success < 100000000000 or reason not in ('', 'account_unbound', 'oauth_auth', 'oauth_check', 'oauth_login'):
+                if not isinstance(count, int) or not 0 <= count <= 1000 or not isinstance(success, (int,float)) or not 0 <= success < 100000000000 or reason not in ('', 'account_unbound', 'oauth_auth', 'oauth_check', 'oauth_login', 'session_auth'):
                     raise VaultCorrupt('계정 상태 정보 형식이 올바르지 않습니다.')
                 self.rate_limit_count, self.last_success_at, self.unavailable_reason = count, success, reason
                 fields = {k: saved.get(k, '') for k in ('uid', 'token', 'device_id')}
@@ -286,9 +286,9 @@ class AccountPool:
     def owner(self, session):
         return next((account for account in self.accounts if account.owns(session)), None)
 
-    def eligible(self):
+    def eligible(self, exclude=()):
         eligible = [(i,a) for i,a in enumerate(self.accounts)
-                    if a.status()['shared_ready'] and a.cooldown_until <= self.clock()
+                    if i not in exclude and a.status()['shared_ready'] and a.cooldown_until <= self.clock()
                     and not a.unavailable_reason]
         # A reauthenticated or recently restarted limited account must not
         # displace accounts which have no known retrieval limitation.
@@ -318,21 +318,33 @@ class AccountPool:
                         'unavailable_reason':a.unavailable_reason}
                         for i,a in enumerate(self.accounts)]}
 
-    def fetch(self, text, fetch):
+    def queued_fetch(self, text, fetch):
+        # Each queued replay gets its own bounded set. A failed slot is never
+        # tried twice for that replay, even if its short cooldown expires.
+        tried = set()
+        return lambda: self.fetch(text, fetch, tried=tried)
+
+    def fetch(self, text, fetch, *, tried=None):
+        tried = tried if tried is not None else set()
         with self.lock:
-            eligible = self.eligible()
+            eligible = self.eligible(tried)
             if not eligible:
-                ready = [a for a in self.accounts if a.status()['shared_ready'] and not a.unavailable_reason]
+                ready = [a for i, a in enumerate(self.accounts) if i not in tried
+                         and a.status()['shared_ready'] and not a.unavailable_reason]
                 if ready:
                     raise AccountsCooling(min(a.cooldown_until for a in ready)-self.clock())
                 from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
                 raise AuthenticationRequired(self.accounts[0].region)
             index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
+            tried.add(index)
             self.cursor = (index+1)%len(self.accounts)
             self.active_slot = self.last_slot = index+1
-            session = account.ready_session()
         print('Replay account slot selected:', index+1)
         try:
+            session = account.ready_session()
+            if session is None:
+                from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
+                raise AuthenticationRequired(account.region)
             result = fetch(text, session, account)
             with account.operation, account.vault_lock():
                 account.restore()
@@ -355,17 +367,44 @@ class AccountPool:
                     if account.session:
                         account.save(account.session)
                 ready = [a for a in self.accounts if a.status()['shared_ready'] and not a.unavailable_reason]
-                exc.can_retry = bool(self.eligible())
                 exc.retry_after = max(60, int(min(a.cooldown_until for a in ready)-self.clock())+1) if ready else 60
-            elif stage in ('account_unbound','oauth_auth','oauth_check','oauth_login'):
+            elif stage in ('account_unbound','oauth_auth','oauth_check','oauth_login') and code != 151:
                 with account.operation, account.vault_lock():
                     account.restore()
                     account.unavailable_reason = stage
                     if account.session:
                         account.save(account.session)
-                exc.can_retry = bool(self.eligible())
             elif type(exc).__name__ in ('VerificationCodeRequired','AuthenticationRequired'):
-                exc.can_retry = bool(self.eligible())
+                with account.operation, account.vault_lock():
+                    account.restore()
+                    account.unavailable_reason = 'session_auth'
+                    if account.session:
+                        account.save(account.session)
+            elif (type(exc).__name__ == 'YostarApiError' or
+                  isinstance(exc, (TimeoutError, ConnectionError, OSError)) or
+                  stage in ('gateway', 'connection', 'connection_result') or
+                  _network_error(exc)):
+                # An SDK rejection is not proof that the saved token expired.
+                # Preserve it and temporarily rest this account; don't re-send OTP.
+                with account.operation, account.vault_lock():
+                    account.restore()
+                    pause = 300 if type(exc).__name__ == 'YostarApiError' else 60
+                    account.cooldown_until = max(account.cooldown_until, self.clock()+pause)
+                    if account.session:
+                        account.save(account.session)
+            else:
+                # Invalid replay, shared protocol/version or storage failure:
+                # switching accounts cannot repair these errors.
+                raise
+            exc.can_retry = any(i not in tried and a.status()['shared_ready']
+                                and not a.unavailable_reason
+                                for i, a in enumerate(self.accounts))
+            exc.retry_kind = 'account'
             raise
         finally:
             self.active_slot = None
+
+
+def _network_error(error):
+    import aiohttp
+    return isinstance(error, aiohttp.ClientError)

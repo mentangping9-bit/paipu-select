@@ -2,6 +2,9 @@
 (() => {
 'use strict';
 const messages = {
+  "대기 {waiting}건 · 처리 중 {processing}건": {"ko": "대기 {waiting}건 · 처리 중 {processing}건", "en": "Waiting: {waiting} · Processing: {processing}", "ja": "待機中：{waiting}件・処理中：{processing}件"},
+  "연결되지 않는 조회 계정을 건너뛰고 다른 계정으로 다시 시도합니다.": {"ko": "연결되지 않는 조회 계정을 건너뛰고 다른 계정으로 다시 시도합니다.", "en": "Skipping an unavailable replay account and retrying with another account.", "ja": "接続できない取得用アカウントをスキップし、別のアカウントで再試行します。"},
+
   "작혼 패보 불러오기": {"ko": "작혼 패보 불러오기", "en": "Import replay", "ja": "雀魂牌譜を読み込む"},
   "작혼 링크": {"ko": "작혼 링크", "en": "Replay link", "ja": "雀魂リンク"},
   "불러오기": {"ko": "불러오기", "en": "Import", "ja": "読み込む"},
