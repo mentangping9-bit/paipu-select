@@ -2,6 +2,17 @@
 (() => {
 'use strict';
 const messages = {
+  "작혼 패보 불러오기": {"ko": "작혼 패보 불러오기", "en": "Import replay", "ja": "雀魂牌譜を読み込む"},
+  "작혼 링크": {"ko": "작혼 링크", "en": "Replay link", "ja": "雀魂リンク"},
+  "불러오기": {"ko": "불러오기", "en": "Import", "ja": "読み込む"},
+  "국": {"ko": "국", "en": "Round", "ja": "局"},
+  "결과 · 점수": {"ko": "결과 · 점수", "en": "Result · points", "ja": "結果・点数"},
+  "동": {"ko": "동", "en": "E", "ja": "東"},
+  "남": {"ko": "남", "en": "S", "ja": "南"},
+  "서": {"ko": "서", "en": "W", "ja": "西"},
+  "북": {"ko": "북", "en": "N", "ja": "北"},
+  "한국어·日本語·English로 복사한 작혼 패보 공유 문구 전체를 그대로 붙여넣어도 됩니다.": {"ko": "한국어·日本語·English로 복사한 작혼 패보 공유 문구 전체를 그대로 붙여넣어도 됩니다.", "en": "Paste the entire Mahjong Soul share text in Korean, Japanese or English.", "ja": "韓国語・日本語・英語の雀魂牌譜共有テキストをそのまま貼り付けられます。"},
+  "작혼, 천봉, NAGA와 제휴하지 않았습니다. JSON 파일은 브라우저에서만 처리됩니다. 작혼 링크 조회에는 변환 서버를 이용합니다.": {"ko": "작혼, 천봉, NAGA와 제휴하지 않았습니다. JSON 파일은 브라우저에서만 처리됩니다. 작혼 링크 조회에는 변환 서버를 이용합니다.", "en": "Not affiliated with Mahjong Soul, Tenhou or NAGA. JSON files stay in your browser. Replay links are fetched through the conversion server.", "ja": "雀魂・天鳳・NAGAとは提携していません。JSONファイルはブラウザー内で処理され、雀魂リンクの取得には変換サーバーを使用します。"},
   "변환 서버를 준비하고 있습니다. 링크를 붙여넣거나 JSON 파일을 먼저 사용할 수 있습니다.": {"ko":"변환 서버를 준비하고 있습니다. 링크를 붙여넣거나 JSON 파일을 먼저 사용할 수 있습니다.","en":"Starting the conversion server. You can paste a link or use a JSON file now.","ja":"変換サーバーを起動中です。リンクの貼り付けやJSONファイルの読み込みは先に行えます。"},
   "서버 준비에 시간이 걸립니다. 잠시 후 다시 시도해 주세요.": {"ko":"서버 준비에 시간이 걸립니다. 잠시 후 다시 시도해 주세요.","en":"The server is taking longer to start. Please try again shortly.","ja":"サーバーの起動に時間がかかっています。しばらくしてから再試行してください。"},
   "패보 처리 중": {"ko": "패보 처리 중", "en": "Processing replay", "ja": "牌譜を処理中"},

@@ -15,7 +15,7 @@ function updateConvertButton(){
  btn.disabled=busy||remaining>0;
  if(busy){btn.textContent=t('작혼 패보를 가져오는 중…');return;}
  if(remaining){const time=remaining>=60?t('{n}분',{n:Math.ceil(remaining/60)}):t('{n}초',{n:remaining});btn.textContent=t('{time} 후 다시 시도',{time});return;}
- clearInterval(retryTimer);retryTimer=0;btn.textContent=t('패보 자동 변환하고 국 선택하기')+' →';
+ clearInterval(retryTimer);retryTimer=0;btn.textContent=t('불러오기');
 }
 function setReplayCooldown(data,response){
  const seconds=Number(data.retry_after||response.headers.get('Retry-After'));
@@ -44,12 +44,24 @@ function switchTab(to){mode=to;clearError();const isUrl=to==='url';$('backendInf
 function normalizeRecord(v){if(typeof v==='string'){try{return JSON.parse(v);}catch{throw new Error(t('서버가 올바른 JSON을 반환하지 않았습니다.'));}}
  if(v&&typeof v==='object'){for(const prop of ['tenhou','result','data','json','record','payload']){if(v[prop]&&typeof v[prop]==='object'&&Array.isArray(v[prop].log))return v[prop];}return v;}
  throw new Error(t('서버 응답에 천봉 JSON이 없습니다.'));}
-function importData(data,title){try{const source=typeof data==='string'?data:JSON.stringify(normalizeRecord(data));const res=parser.parseText(source);if(!res.length)throw Error(t('대국 기록을 찾지 못했습니다.'));rounds=res;latestFile=title;chosen=new Set();$('inputPanel').hidden=true;$('roundPanel').hidden=false;$('resultPanel').hidden=true;$('matchTitle').textContent=t(title);$('totalRounds').textContent=String(rounds.length);let dataObj;try{dataObj=typeof data==='string'?JSON.parse(data):normalizeRecord(data);}catch{dataObj={};}let names=Array.isArray(dataObj?.name)?dataObj.name.join(' · '):'';$('matchNames').textContent=names;$('errorBox').hidden=true;renderRounds();$('roundPanel').scrollIntoView({behavior:'smooth',block:'start'});}
+function importData(data,title){try{const source=typeof data==='string'?data:JSON.stringify(normalizeRecord(data));const res=parser.parseText(source);if(!res.length)throw Error(t('대국 기록을 찾지 못했습니다.'));rounds=res;latestFile=title;chosen=new Set();$('inputPanel').hidden=false;$('roundPanel').hidden=false;$('resultPanel').hidden=true;$('matchTitle').textContent=t(title);$('totalRounds').textContent=String(rounds.length);let dataObj;try{dataObj=typeof data==='string'?JSON.parse(data):normalizeRecord(data);}catch{dataObj={};}let names=Array.isArray(dataObj?.name)?dataObj.name.join(' · '):'';$('matchNames').textContent=names;$('errorBox').hidden=true;renderRounds();$('roundPanel').scrollIntoView({behavior:'smooth',block:'start'});}
  catch(err){alertError(t('패보를 해석하지 못했습니다: ')+i18n.error(err.message));}}
 function humanResult(str){if(str==='和了')return t('화료');if(str==='流局')return t('유국');if(str==='不明')return t('종료 기록 불명');return str||t('결과 미상');}
-function renderRounds(){const box=$('roundList');box.replaceChildren();for(const r of rounds){const on=chosen.has(r.id);const label=document.createElement('label');label.className='round-card'+(on?' checked':'');const inp=document.createElement('input');inp.type='checkbox';inp.checked=on;inp.setAttribute('aria-label',i18n.roundName(r.roundNo,r.honba));inp.addEventListener('change',()=>{if(inp.checked)chosen.add(r.id);else chosen.delete(r.id);renderRounds();});const tick=document.createElement('span');tick.className='checkmark';tick.textContent='✓';const info=document.createElement('span');info.className='round-meta';const name=document.createElement('strong');name.textContent=i18n.roundName(r.roundNo,r.honba);const sub=document.createElement('small');const record=parser.parseUrlJSON(r.url);sub.textContent=parser.winSummary(record.log[0],record.name,i18n.language)||humanResult(r.result)+(r.incompleteWin?t(' · 점수 정보 부족'):'');info.append(name,sub);label.append(inp,tick,info);box.append(label);}const n=chosen.size;$('selectedCount').textContent=t('{n}국 선택',{n});$('summaryCount').textContent=String(n);$('costCount').textContent=String(n);$('generateBtn').disabled=n===0;}
-function setChosen(predicate){chosen=new Set(rounds.filter(predicate).map(v=>v.id));renderRounds();}
-function buildOutput(){if(chosen.size===0)return;let output=parser.urlsForSelection(rounds,chosen,$('anonymousCheck').checked);$('outputArea').value=output;$('roundPanel').hidden=true;$('resultPanel').hidden=false;$('resultSummary').textContent=t('✓ 선택한 {n}개 국의 URL을 만들었습니다.',{n:chosen.size});const selected=rounds.filter(v=>chosen.has(v.id));const incomplete=selected.filter(v=>v.incompleteWin).length;const recovered=selected.filter(v=>v.recoveredWin&&!v.incompleteWin).length;const notes=[];if(recovered)notes.push(t('{n}개 국의 타점을 원본 점수 증감에서 복원했습니다. 원본에 없는 부수·판수·역은 추가하지 않았습니다.',{n:recovered}));if(incomplete)notes.push(t("{n}개 국은 원본의 점수 정보가 부족하거나 특수 정산을 확정할 수 없어 종료 기록을 '不明'으로 표기했습니다.",{n:incomplete}));$('convertWarnings').hidden=!notes.length;$('convertWarnings').textContent=notes.join(' ');$('resultPanel').scrollIntoView({behavior:'smooth',block:'start'});}
+function renderRounds(){
+ const box=$('roundList');box.replaceChildren();
+ for(const r of rounds){
+  const label=document.createElement('label');label.className='round-card'+(chosen.has(r.id)?' checked':'');
+  const inp=document.createElement('input');inp.type='checkbox';inp.checked=chosen.has(r.id);inp.setAttribute('aria-label',i18n.roundName(r.roundNo,r.honba));
+  inp.addEventListener('change',()=>{if(inp.checked)chosen.add(r.id);else chosen.delete(r.id);$('resultPanel').hidden=true;renderRounds();});
+  const wind=document.createElement('span');const windIndex=Math.min(3,Math.floor(r.roundNo/4));wind.className='wind-badge wind-'+windIndex;wind.textContent=t(['동','남','서','북'][windIndex]);wind.setAttribute('aria-hidden','true');
+  const name=document.createElement('strong');name.className='round-name';name.textContent=i18n.roundName(r.roundNo,r.honba);
+  const sub=document.createElement('span');sub.className='round-result';const record=parser.parseUrlJSON(r.url);sub.textContent=parser.winSummary(record.log[0],record.name,i18n.language)||humanResult(r.result)+(r.incompleteWin?t(' · 점수 정보 부족'):'');
+  label.append(inp,wind,name,sub);box.append(label);
+ }
+ const n=chosen.size;$('selectedCount').textContent=t('{n}국 선택',{n});$('summaryCount').textContent=String(n);$('costCount').textContent=String(n);$('generateBtn').disabled=n===0;
+}
+function setChosen(predicate){$('resultPanel').hidden=true;chosen=new Set(rounds.filter(predicate).map(v=>v.id));renderRounds();}
+function buildOutput(){if(chosen.size===0)return;let output=parser.urlsForSelection(rounds,chosen,$('anonymousCheck').checked);$('outputArea').value=output;$('roundPanel').hidden=false;$('resultPanel').hidden=false;$('resultSummary').textContent=t('✓ 선택한 {n}개 국의 URL을 만들었습니다.',{n:chosen.size});const selected=rounds.filter(v=>chosen.has(v.id));const incomplete=selected.filter(v=>v.incompleteWin).length;const recovered=selected.filter(v=>v.recoveredWin&&!v.incompleteWin).length;const notes=[];if(recovered)notes.push(t('{n}개 국의 타점을 원본 점수 증감에서 복원했습니다. 원본에 없는 부수·판수·역은 추가하지 않았습니다.',{n:recovered}));if(incomplete)notes.push(t("{n}개 국은 원본의 점수 정보가 부족하거나 특수 정산을 확정할 수 없어 종료 기록을 '不明'으로 표기했습니다.",{n:incomplete}));$('convertWarnings').hidden=!notes.length;$('convertWarnings').textContent=notes.join(' ');$('resultPanel').scrollIntoView({behavior:'smooth',block:'start'});}
 async function readFile(f){clearError();if(!f)return;if(f.size>parser.MAX_BYTES){alertError(t('파일 크기는 10MB 이하여야 합니다.'));return;}try{const txt=await f.text();importData(txt,f.name);}catch(e){alertError(t('파일을 읽는 중 오류: ')+i18n.error(e.message));}}
 function normalizedUrl(text) {
   return globalThis.MajsoulShare.extract(text);

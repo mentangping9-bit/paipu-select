@@ -13,5 +13,6 @@ for(const name of ['index.html','styles.css','i18n.js','converter.js','link-util
  }
  fs.writeFileSync(path.join(out,name),text);
 }
+fs.cpSync(path.join(root,'public','assets'),path.join(out,'assets'),{recursive:true});
 fs.writeFileSync(path.join(out,'backend-config.js'),'globalThis.PaipuBackendOrigin='+JSON.stringify(backend)+';\nif(new URL(location.href).searchParams.get("setup")==="1")location.replace('+JSON.stringify(backend+'/?setup=1')+');\n');
 console.log('Static frontend built:',build);

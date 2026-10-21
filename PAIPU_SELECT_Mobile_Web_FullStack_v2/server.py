@@ -47,7 +47,7 @@ TTL = 2 * 60 * 60
 MAX_JSON = 12 * 1024 * 1024
 SESSION_LIMIT = 1500
 OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
-STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js'}
+STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js', '/assets/wordmark.svg', '/assets/mascot.webp', '/assets/Nunito-OFL.txt'}
 VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
 replay_admission = ReplayAdmission()
@@ -499,7 +499,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.4.1',
+                                  'version': '3.5.0',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'build_commit': BUILD,
                                   'gateway_probe': gateway_probe,
