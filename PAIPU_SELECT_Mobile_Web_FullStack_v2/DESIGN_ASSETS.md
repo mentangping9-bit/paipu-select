@@ -17,14 +17,15 @@ and response security headers.
 
 ## Rounded description fonts
 
-Explanatory copy uses local WOFF2 subsets of Jua (Korean), Zen Maru Gothic Medium
+Explanatory copy uses local WOFF2 subsets of NanumSquareRound Regular (Korean), Zen Maru Gothic Medium
 (Japanese), and Nunito SemiBold (English). Fonts use `font-display: swap`; dynamic
 characters outside the UI subset fall back to the system font. No runtime font
 CDN request is made. Form values, replay scores and headings retain their prior
-fonts. Derived font families use distinct Paipu names.
+fonts. Derived font families use distinct Paipu names; the Korean subset is named
+Paipu Soft Round Korean to respect the upstream Reserved Font Names.
 
 Upstreams (SIL Open Font License; license files in `public/assets`):
-- https://github.com/google/fonts/tree/main/ofl/jua (`Jua-Regular.ttf`)
+- https://hangeul.naver.com/font (NanumSquareRound Regular, `NanumSquareRoundR.ttf`)
 - https://github.com/google/fonts/tree/main/ofl/zenmarugothic (`ZenMaruGothic-Medium.ttf`)
 - https://github.com/google/fonts/tree/main/ofl/nunito (`Nunito[wght].ttf`, save as `nunito.ttf`)
 
@@ -33,3 +34,7 @@ in a source directory, then run `python scripts/build-ui-fonts.py SOURCE_DIR`.
 The subset includes characters from public JavaScript and HTML, ASCII and common
 UI punctuation. Static and Python CSPs allow fonts only from their own origin.
 The inline globe is a code-native SVG decoration within the language select label.
+
+Nanum font license notice: https://help.naver.com/service/30016/contents/18088?osType=PC&lang=ko
+The original copyright, Reserved Font Name notice and full OFL text accompany
+the subset in `public/assets/NanumSquareRound-LICENSE.txt`.

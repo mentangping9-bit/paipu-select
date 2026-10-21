@@ -1,7 +1,7 @@
-@font-face{font-family:'Paipu Rounded KO';src:url('./assets/rounded-ko.woff2') format('woff2');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:'Paipu Soft Round KO';src:url('./assets/nanum-square-round-ko.woff2') format('woff2');font-style:normal;font-weight:400;font-display:swap}
 @font-face{font-family:'Paipu Rounded JA';src:url('./assets/rounded-ja.woff2') format('woff2');font-style:normal;font-weight:500;font-display:swap}
 @font-face{font-family:'Paipu Rounded EN';src:url('./assets/rounded-en.woff2') format('woff2');font-style:normal;font-weight:600;font-display:swap}
-.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small{font-family:'Paipu Rounded KO',sans-serif;font-weight:400}
+.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small{font-family:'Paipu Soft Round KO',sans-serif;font-weight:400}
 :lang(ja) :is(.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small){font-family:'Paipu Rounded JA',sans-serif;font-weight:500}
 :lang(en) :is(.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small){font-family:'Paipu Rounded EN',sans-serif;font-weight:600}
 :root{--ink:#493b32;--muted:#81766c;--line:#dfd3c8;--paper:#fffaf3;--surface:#fffdf9;--pink:#d74b6b;--pink-dark:#bd3656;--blush:#fff0f0;--sage:#dcebe3;--radius:9px;color-scheme:light}

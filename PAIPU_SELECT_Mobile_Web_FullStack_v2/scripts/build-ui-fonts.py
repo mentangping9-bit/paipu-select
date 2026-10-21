@@ -1,6 +1,6 @@
 """Build local OFL font subsets for UI copy. Usage: python scripts/build-ui-fonts.py SOURCE_DIR
 
-SOURCE_DIR contains Jua-Regular.ttf, ZenMaruGothic-Medium.ttf and nunito.ttf.
+SOURCE_DIR contains NanumSquareRoundR.ttf, ZenMaruGothic-Medium.ttf and nunito.ttf.
 Requires fonttools[woff] (development only). See DESIGN_ASSETS.md for upstreams.
 """
 from pathlib import Path
@@ -17,7 +17,7 @@ text = ''.join(p.read_text() for p in (root / 'public').glob('*.js'))
 text += (root / 'public/index.html').read_text()
 text += ''.join(map(chr, range(32, 127))) + '·…–—「」『』【】、。！？'
 fonts = [
-    ('Jua-Regular.ttf', 'rounded-ko.woff2', 'Paipu Rounded Korean', None),
+    ('NanumSquareRoundR.ttf', 'nanum-square-round-ko.woff2', 'Paipu Soft Round Korean', None),
     ('ZenMaruGothic-Medium.ttf', 'rounded-ja.woff2', 'Paipu Rounded Japanese', None),
     ('nunito.ttf', 'rounded-en.woff2', 'Paipu Rounded Latin', 600),
 ]
@@ -36,6 +36,7 @@ for filename, output, family, weight in fonts:
     for record in font['name'].names:
         if record.nameID in names:
             record.string = names[record.nameID].encode(record.getEncoding())
+    font.recalcTimestamp = False
     font.flavor = 'woff2'
     path = root / 'public/assets' / output
     font.save(path)

@@ -1,4 +1,9 @@
-Copyright 2018 The Jua Project Authors
+Copyright ⓒ 2017 NAVER Corporation. All rights reserved. Font designed by Sandoll Communications Inc.
+Copyright (c) 2010, NAVER Corporation (https://www.navercorp.com/) with Reserved Font Name Nanum, Naver Nanum, NanumGothic, Naver NanumGothic, NanumMyeongjo, Naver NanumMyeongjo, NanumBrush, Naver NanumBrush, NanumPen, Naver NanumPen, Naver NanumGothicEco, NanumGothicEco, Naver NanumMyeongjoEco, NanumMyeongjoEco, Naver NanumGothicLight, NanumGothicLight, NanumBarunGothic, Naver NanumBarunGothic, NanumSquareRound, NanumBarunPen, MaruBuri, NanumSquareNeo
+
+Original font: NanumSquareRound Regular, from https://hangeul.naver.com/font
+License notice source: https://help.naver.com/service/30016/contents/18088?osType=PC&lang=ko
+The local WOFF2 UI subset is a modified version named Paipu Soft Round Korean.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
