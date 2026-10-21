@@ -2,6 +2,17 @@
 (() => {
 'use strict';
 const messages = {
+  "작혼 공유 링크를 NAGA 분석용 패보로 변환하고 원하는 국만 선택하세요. PC와 모바일에서 이용할 수 있습니다.": {"ko": "작혼 공유 링크를 NAGA 분석용 패보로 변환하고 원하는 국만 선택하세요. PC와 모바일에서 이용할 수 있습니다.", "en": "Convert a Mahjong Soul share link for NAGA analysis and select the rounds you want. Works on desktop and mobile.", "ja": "雀魂の共有リンクをNAGA解析用の牌譜に変換し、解析したい局だけを選べます。PC・スマートフォンに対応。"},
+  "작혼 패보 → NAGA 분석용 변환": {"ko": "작혼 패보 → NAGA 분석용 변환", "en": "Mahjong Soul → NAGA replay converter", "ja": "雀魂牌譜 → NAGA解析用に変換"},
+  "작혼 패보를 NAGA에서 분석할 수 있는 링크로 변환합니다.": {"ko": "작혼 패보를 NAGA에서 분석할 수 있는 링크로 변환합니다.", "en": "Convert Mahjong Soul replays into links you can submit to NAGA for analysis.", "ja": "雀魂の牌譜を、NAGAで解析できるリンクに変換します。"},
+  "사용 순서": {"ko": "사용 순서", "en": "How to use", "ja": "使い方"},
+  "작혼 공유 링크 붙여넣기": {"ko": "작혼 공유 링크 붙여넣기", "en": "Paste a Mahjong Soul share link", "ja": "雀魂の共有リンクを貼り付ける"},
+  "작혼 패보의 공유 문구를 그대로 넣고 불러오세요.": {"ko": "작혼 패보의 공유 문구를 그대로 넣고 불러오세요.", "en": "Paste the full Mahjong Soul replay share text, then select Import.", "ja": "雀魂の牌譜共有テキストをそのまま貼り付け、読み込んでください。"},
+  "동국·남국과 본장을 구분해 원하는 국만 체크하세요.": {"ko": "동국·남국과 본장을 구분해 원하는 국만 체크하세요.", "en": "Select the East or South rounds and honba you want to analyze.", "ja": "東場・南場、本場を確認して、解析したい局だけを選んでください。"},
+  "NAGA에 URL 제출": {"ko": "NAGA에 URL 제출", "en": "Submit the URLs to NAGA", "ja": "NAGAにURLを提出する"},
+  "생성한 URL을 복사해 NAGA 제출창에 붙여넣으세요.": {"ko": "생성한 URL을 복사해 NAGA 제출창에 붙여넣으세요.", "en": "Copy the generated URLs and paste them into the NAGA submission form.", "ja": "生成されたURLをコピーし、NAGAの解析申請画面に貼り付けてください。"},
+  "최종 분석 신청과 NP 소모량 확인은 NAGA에서 직접 진행합니다.": {"ko": "최종 분석 신청과 NP 소모량 확인은 NAGA에서 직접 진행합니다.", "en": "Check the NP cost and submit the final analysis request on NAGA.", "ja": "NP消費量の確認と最終的な解析申請は、NAGAで行ってください。"},
+
   "대기 {waiting}건 · 처리 중 {processing}건": {"ko": "대기 {waiting}건 · 처리 중 {processing}건", "en": "Waiting: {waiting} · Processing: {processing}", "ja": "待機中：{waiting}件・処理中：{processing}件"},
   "연결되지 않는 조회 계정을 건너뛰고 다른 계정으로 다시 시도합니다.": {"ko": "연결되지 않는 조회 계정을 건너뛰고 다른 계정으로 다시 시도합니다.", "en": "Skipping an unavailable replay account and retrying with another account.", "ja": "接続できない取得用アカウントをスキップし、別のアカウントで再試行します。"},
 

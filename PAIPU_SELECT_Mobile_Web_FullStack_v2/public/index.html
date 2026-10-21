@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#fffaf3"><meta name="description" content="작혼 패보의 원하는 국만 골라 NAGA용 천봉 URL을 만드는 모바일 국 선택기">
+<meta name="theme-color" content="#fffaf3"><meta name="description" content="작혼 공유 링크를 NAGA 분석용 패보로 변환하고 원하는 국만 선택하세요. PC와 모바일에서 이용할 수 있습니다.">
 <title>패보 셀렉터 · 작혼 → NAGA</title>
 <link rel="stylesheet" href="./styles.css">
 </head>
@@ -10,13 +10,22 @@
 <div class="site">
   <header class="topbar">
     <a class="mark" href="/" aria-label="PAIPU SELECT 홈"><img class="wordmark" src="./assets/wordmark.svg" alt="PAIPU SELECT" width="365" height="180"></a>
-    <p class="header-note">작혼 패보를 불러오고 분석할 동국·남국을 선택하세요.</p>
+    <p class="header-note">작혼 패보 → NAGA 분석용 변환</p>
     <img class="mascot" src="./assets/mascot.webp" alt="" aria-hidden="true" width="720" height="480" decoding="async">
     <div class="top-actions"><label class="language-picker"><svg class="language-globe" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18M4.5 7.5h15M4.5 16.5h15"/></svg><select id="languageSelect" aria-label="Language / 언어 / 言語"><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option></select></label></div>
   </header>
   <main>
     <section class="panel" id="inputPanel">
       <div class="panel-head"><div><h1>작혼 패보 불러오기</h1><span class="flower" aria-hidden="true">✿</span></div><div class="indicator"> <span class="indicator-bubble"></span> 4인 마작 전용</div></div>
+      <div class="usage-guide">
+        <p class="guide-purpose">작혼 패보를 NAGA에서 분석할 수 있는 링크로 변환합니다.</p>
+        <ol class="guide-steps" aria-label="사용 순서">
+          <li><strong>작혼 공유 링크 붙여넣기</strong><span>작혼 패보의 공유 문구를 그대로 넣고 불러오세요.</span></li>
+          <li><strong>분석할 국 선택</strong><span>동국·남국과 본장을 구분해 원하는 국만 체크하세요.</span></li>
+          <li><strong>NAGA에 URL 제출</strong><span>생성한 URL을 복사해 NAGA 제출창에 붙여넣으세요.</span></li>
+        </ol>
+        <p class="guide-note">최종 분석 신청과 NP 소모량 확인은 NAGA에서 직접 진행합니다.</p>
+      </div>
       <div class="tabbar" role="tablist" aria-label="패보 입력 방법"><button id="urlTab" class="tab active" role="tab" aria-selected="true" type="button">작혼 링크</button><button id="fileTab" class="tab" role="tab" aria-selected="false" type="button">JSON 파일</button></div>
       <p id="serverStatus" class="hint" role="status" aria-live="polite" hidden></p>
       <div id="urlMode" class="input-content"><label for="paipuInput" class="field-label">작혼 공유 URL</label><div class="url-entry"><textarea id="paipuInput" rows="2" spellcheck="false" placeholder="작혼 패보:https://mahjongsoul.game.yo-star.com/?paipu=..." autocomplete="off"></textarea><button type="button" id="convertUrlBtn" class="btn primary">불러오기</button></div><p class="hint">한국어·日本語·English로 복사한 작혼 패보 공유 문구 전체를 그대로 붙여넣어도 됩니다.</p>
