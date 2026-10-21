@@ -47,7 +47,7 @@ TTL = 2 * 60 * 60
 MAX_JSON = 12 * 1024 * 1024
 SESSION_LIMIT = 1500
 OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
-STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js', '/assets/wordmark.svg', '/assets/mascot.webp', '/assets/Nunito-OFL.txt'}
+STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js', '/assets/wordmark.svg', '/assets/mascot.webp', '/assets/Nunito-OFL.txt', '/assets/Jua-OFL.txt', '/assets/ZenMaruGothic-OFL.txt', '/assets/rounded-ko.woff2', '/assets/rounded-ja.woff2', '/assets/rounded-en.woff2'}
 VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
 replay_admission = ReplayAdmission()
@@ -368,7 +368,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'")
         if os.getenv('PUBLIC_HTTPS') == '1':
             self.send_header('Strict-Transport-Security', 'max-age=15552000')
         super().end_headers()

@@ -11,5 +11,25 @@
 
 All assets are served locally on both the static frontend and original backend.
 The production static build copies the public assets directory; the Python
-server permits only the three named asset paths, with its existing file boundary
+server permits only explicitly named asset paths, with its existing file boundary
 and response security headers.
+
+
+## Rounded description fonts
+
+Explanatory copy uses local WOFF2 subsets of Jua (Korean), Zen Maru Gothic Medium
+(Japanese), and Nunito SemiBold (English). Fonts use `font-display: swap`; dynamic
+characters outside the UI subset fall back to the system font. No runtime font
+CDN request is made. Form values, replay scores and headings retain their prior
+fonts. Derived font families use distinct Paipu names.
+
+Upstreams (SIL Open Font License; license files in `public/assets`):
+- https://github.com/google/fonts/tree/main/ofl/jua (`Jua-Regular.ttf`)
+- https://github.com/google/fonts/tree/main/ofl/zenmarugothic (`ZenMaruGothic-Medium.ttf`)
+- https://github.com/google/fonts/tree/main/ofl/nunito (`Nunito[wght].ttf`, save as `nunito.ttf`)
+
+Regenerate after adding UI copy: install `fonttools[woff]`, place upstream TTFs
+in a source directory, then run `python scripts/build-ui-fonts.py SOURCE_DIR`.
+The subset includes characters from public JavaScript and HTML, ASCII and common
+UI punctuation. Static and Python CSPs allow fonts only from their own origin.
+The inline globe is a code-native SVG decoration within the language select label.
