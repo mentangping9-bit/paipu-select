@@ -3,11 +3,13 @@
 - `public/assets/mascot.webp`: original generated chibi mascot based on the
   user-approved PAIPU SELECT UI concept. Transparent, 720×480, about 60 KB.
   No speech bubbles, slogans, or promotional phrases are embedded in the image.
-- `public/assets/wordmark.svg`: custom two-line wordmark using outlined Nunito
-  Black letterforms with a small check tile and flower. No remote fonts or image
-  services are needed at runtime.
+- `public/assets/wordmark.svg`: custom two-line vector wordmark traced from the
+  user-provided original PAIPU SELECT concept. It preserves the uneven lettering,
+  dotted i, check tile and mahjong tile in SELECT, with clean floral accents.
+  The background is transparent; the artwork contains only SVG paths/circles,
+  with no font, embedded bitmap, remote resource or runtime image service.
 - `public/assets/Nunito-OFL.txt`: Nunito's SIL Open Font License, distributed with
-  the outlined wordmark. Font source: https://github.com/google/fonts/tree/main/ofl/nunito
+  the English UI font. Font source: https://github.com/google/fonts/tree/main/ofl/nunito
 
 All assets are served locally on both the static frontend and original backend.
 The production static build copies the public assets directory; the Python
