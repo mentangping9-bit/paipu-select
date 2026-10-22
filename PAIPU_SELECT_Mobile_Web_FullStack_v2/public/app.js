@@ -228,7 +228,7 @@ function renderAccounts(data){
  for(const a of data.accounts){
   const state=!a.authenticated?t('최초 인증 필요'):a.unavailable_reason?t('게임 로그인 확인 필요')+' ('+a.unavailable_reason+')':
    a.cooldown_seconds>0?t('휴식 {n}초',{n:a.cooldown_seconds}):
-   a.rate_limit_count>0?t('다른 정상 계정 우선'):a.last_success_at?t('패보 조회 성공 확인'):t('인증 완료 · 조회 확인 전');
+   a.rate_limit_count>0?t('조회 제한(540) 이력 · 재시도 가능'):a.last_success_at?t('패보 조회 성공 확인'):t('인증 완료 · 조회 확인 전');
   lines.push(t('조회 계정 {n}',{n:a.slot})+' · '+a.email+' · '+a.region.toUpperCase()+' · '+state);
  }
  $('accountSlotStatus').textContent=lines.join('\n');

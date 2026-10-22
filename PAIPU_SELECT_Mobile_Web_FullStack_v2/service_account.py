@@ -15,6 +15,7 @@ from contextlib import contextmanager, nullcontext
 
 from postgres_vault import VaultUnavailable, VaultCorrupt, VaultBusy
 
+_UNSET = object()
 
 class SessionVault:
     storage = 'encrypted_file'
@@ -80,15 +81,16 @@ class ServiceAccount:
     def vault_lock(self):
         return self.vault.locked() if hasattr(self.vault, 'locked') else nullcontext()
 
-    def restore(self):
+    def restore(self, saved=_UNSET):
         """Caller serializes mutation. Re-read under the cross-process lock."""
         if not self.vault:
             return
-        saved = self.vault.load()
+        saved = self.vault.load() if saved is _UNSET else saved
         with self.lock:
             if not saved:
                 self.session = None
                 self.cooldown_until = 0
+                self.rate_limit_count, self.last_success_at, self.unavailable_reason = 0, 0, ''
             else:
                 if saved.get('email') != self.email or saved.get('region') != self.region:
                     raise VaultCorrupt('저장된 계정과 서버의 공용 계정 설정이 다릅니다.')
@@ -228,7 +230,11 @@ class SlotVault:
         return value
 
     def load(self):
-        value = self._slot(self.vault.load())
+        return self.load_from(self.vault.load())
+
+    def load_from(self, saved):
+        """Read one profile from an already locked, shared snapshot."""
+        value = self._slot(saved)
         if value is None or self.region is None or value.get('region') == self.region:
             return value
         profiles = value.get('regional_profiles', {})
@@ -249,7 +255,7 @@ class SlotVault:
                 profiles = dict(prior_slot.get('regional_profiles', {}))
                 if prior_slot.get('region') != value.get('region'):
                     profiles[prior_slot['region']] = {k:v for k,v in prior_slot.items()
-                        if k not in ('regional_profiles','accounts')}
+                        if k not in ('regional_profiles','accounts','rotation')}
                 profiles.pop(value.get('region'), None)
                 if profiles:
                     merged_slot['regional_profiles'] = profiles
@@ -257,6 +263,8 @@ class SlotVault:
                 merged = merged_slot
                 if previous.get('accounts'):
                     merged['accounts'] = previous['accounts']
+                if 'rotation' in previous:
+                    merged['rotation'] = previous['rotation']
             else:
                 merged = dict(previous)
                 slots = dict(merged.get('accounts', {}))
@@ -277,6 +285,48 @@ class AccountPool:
         self.cursor = 0
         self.lock = threading.RLock()
         self.active_slot = self.last_slot = self.last_success_slot = None
+        # Every SlotVault points at the same encrypted singleton row, even
+        # when each account has its own PostgresVault connection factory.
+        self.vault = accounts[0].vault.vault if accounts and all(
+            isinstance(a.vault, SlotVault) for a in accounts) else None
+        if self.vault:
+            try:
+                with self.vault.locked():
+                    self._restore_rotation(self.vault.load())
+            except (VaultUnavailable, VaultCorrupt, VaultBusy):
+                # The UI and JSON uploads still work. A real retrieval must
+                # reload durable state successfully before claiming any slot.
+                pass
+
+    def _restore_rotation(self, saved):
+        for account in self.accounts:
+            account.restore(account.vault.load_from(saved))
+        state = (saved or {}).get('rotation')
+        if state is None:
+            # Upgrade the legacy row using actual successful retrieval times.
+            # Prefer never-used slots; don't send the rotation back to slot 1.
+            latest = max(range(len(self.accounts)), key=lambda i:self.accounts[i].last_success_at)
+            used = self.accounts[latest].last_success_at > 0
+            self.last_slot = self.last_success_slot = latest+1 if used else None
+            self.cursor = (latest+1)%len(self.accounts) if used else 0
+            return
+        if (not isinstance(state, dict) or state.get('version') != 1 or
+            any(isinstance(state.get(k), bool) or not isinstance(state.get(k), int)
+                or not 1 <= state[k] <= 9 for k in ('next_slot',)) or
+            any(state.get(k) is not None and (isinstance(state[k], bool)
+                or not isinstance(state[k], int) or not 1 <= state[k] <= 9)
+                for k in ('last_used_slot','last_success_slot'))):
+            raise VaultCorrupt('계정 순환 정보 형식이 올바르지 않습니다.')
+        self.cursor = (state['next_slot']-1)%len(self.accounts)
+        self.last_slot = state.get('last_used_slot')
+        self.last_success_slot = state.get('last_success_slot')
+
+    def _save_rotation(self, saved):
+        value = dict(saved or {'version':1})
+        value['rotation'] = {'version':1, 'next_slot':self.cursor+1,
+                            'last_used_slot':self.last_slot,
+                            'last_success_slot':self.last_success_slot}
+        self.vault.save(value)
 
     def registration_account(self, slot):
         if not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= len(self.accounts):
@@ -287,13 +337,9 @@ class AccountPool:
         return next((account for account in self.accounts if account.owns(session)), None)
 
     def eligible(self, exclude=()):
-        eligible = [(i,a) for i,a in enumerate(self.accounts)
+        return [(i,a) for i,a in enumerate(self.accounts)
                     if i not in exclude and a.status()['shared_ready'] and a.cooldown_until <= self.clock()
                     and not a.unavailable_reason]
-        # A reauthenticated or recently restarted limited account must not
-        # displace accounts which have no known retrieval limitation.
-        healthy = [(i,a) for i,a in eligible if a.rate_limit_count == 0]
-        return healthy or eligible
 
     def flags(self):
         states = [account.status() for account in self.accounts]
@@ -326,7 +372,10 @@ class AccountPool:
 
     def fetch(self, text, fetch, *, tried=None):
         tried = tried if tried is not None else set()
-        with self.lock:
+        with self.lock, self.vault.locked() if self.vault else nullcontext():
+            saved = self.vault.load() if self.vault else None
+            if self.vault:
+                self._restore_rotation(saved)
             eligible = self.eligible(tried)
             if not eligible:
                 ready = [a for i, a in enumerate(self.accounts) if i not in tried
@@ -338,8 +387,13 @@ class AccountPool:
             index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
             tried.add(index)
             self.cursor = (index+1)%len(self.accounts)
-            self.active_slot = self.last_slot = index+1
-        print('Replay account slot selected:', index+1)
+            self.last_slot = index+1
+            if self.vault:
+                # Commit before upstream I/O: failures and process restarts
+                # advance the cursor too. Never hold this lock during fetch.
+                self._save_rotation(saved)
+            self.active_slot = index+1
+        print('Replay account slot selected:', index+1, flush=True)
         try:
             session = account.ready_session()
             if session is None:
@@ -353,8 +407,14 @@ class AccountPool:
                 if account.session:
                     account.session.game_verified = True
                     account.save(account.session)
-            self.last_success_slot = index+1
-            print('Replay account slot succeeded:', index+1)
+            with self.lock, self.vault.locked() if self.vault else nullcontext():
+                if self.vault:
+                    saved = self.vault.load()
+                    self._restore_rotation(saved)
+                self.last_success_slot = index+1
+                if self.vault:
+                    self._save_rotation(saved)
+            print('Replay account slot succeeded:', index+1, flush=True)
             return result
         except Exception as exc:
             stage, code = getattr(exc, 'stage', None), getattr(exc, 'code', None)

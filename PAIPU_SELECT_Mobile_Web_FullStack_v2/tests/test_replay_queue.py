@@ -167,9 +167,10 @@ def test_healthy_accounts_rotate_each_fetch_and_reauth_does_not_clear_540():
     now[0]=1601
     seen.clear()
     for _ in range(4):pool.fetch('different replay',ok)
-    assert seen==[owners[1].email,owners[2].email]*2
+    assert seen==[owners[1].email,owners[2].email,owners[0].email,owners[1].email]
+    assert owners[0].rate_limit_count==0
     restored=AccountPool(accounts(vault),clock=lambda:now[0])
-    assert restored.fetch('another',lambda t,s,a:a.email)==owners[1].email
+    assert restored.fetch('another',lambda t,s,a:a.email)==owners[2].email
     assert 'example.com' not in str(restored.flags())
     assert restored.operator_status()['accounts'][0]['email']==owners[0].email
 
@@ -237,6 +238,75 @@ def nine_accounts():
         a.enroll(Session(0, 0, email=a.email, region='jp', uid=a.email,
                          token='retained-token', device_id='device'))
     return vault, owners
+
+
+def restored_nine(vault):
+    return [ServiceAccount(f'account{i}@example.com', 'jp', Session,
+                           SlotVault(vault, i, 'jp')) for i in range(1, 10)]
+
+
+def test_rotation_and_history_survive_a_restart_before_every_request():
+    vault, owners = nine_accounts()
+    seen = []
+    for i in range(18):
+        pool = AccountPool(restored_nine(vault), clock=lambda: 1000+i)
+        status = pool.operator_status()
+        assert status['next_slot'] == i%9+1
+        assert status['last_used_slot'] == ((i-1)%9+1 if i else None)
+        assert status['last_success_slot'] == status['last_used_slot']
+        pool.fetch('replay', lambda t,s,a: seen.append(a.email))
+    assert seen == [a.email for a in owners]*2
+    # Updating primary tokens must preserve the shared cursor and history.
+    owners[0].restore()
+    owners[0].session.token = 'rotated-primary'
+    owners[0].save(owners[0].session)
+    assert AccountPool(restored_nine(vault)).operator_status()['next_slot'] == 1
+    assert all(a.session.token == 'retained-token' for a in restored_nine(vault)[1:])
+
+
+def test_legacy_success_history_advances_to_unused_eighth_and_ninth():
+    vault, owners = nine_accounts()
+    for i,a in enumerate(owners[:7]):
+        a.last_success_at = 1000+i
+        a.save(a.session)
+    # Historical 540 counts do not mean a currently active restriction.
+    owners[0].rate_limit_count = 2
+    owners[0].cooldown_until = 1100
+    owners[0].save(owners[0].session)
+    for expected in [8,9,1]:
+        pool = AccountPool(restored_nine(vault), clock=lambda: 2000)
+        assert pool.operator_status()['next_slot'] == expected
+        assert pool.fetch('replay',lambda t,s,a:a.email) == owners[expected-1].email
+
+
+def test_another_process_cannot_reset_cursor_or_ignore_new_cooldowns():
+    vault, owners = nine_accounts()
+    first = AccountPool(owners, clock=lambda: 1000)
+    stale = AccountPool(restored_nine(vault), clock=lambda: 1000)
+    with pytest.raises(GameError):
+        first.fetch('replay',lambda *args: (_ for _ in ()).throw(GameError('fetch_record',540)))
+    # Even a process created before the failure reads the committed hold/cursor.
+    assert stale.fetch('replay',lambda t,s,a:a.email) == owners[1].email
+    assert stale.accounts[0].cooldown_until == 1600
+    assert first.fetch('replay',lambda t,s,a:a.email) == owners[2].email
+    reboot = AccountPool(restored_nine(vault), clock=lambda: 1000)
+    assert reboot.operator_status()['next_slot'] == 4
+    assert reboot.operator_status()['last_success_slot'] == 3
+
+
+def test_claim_survives_failure_before_result_and_corrupt_cursor_fails_closed():
+    from postgres_vault import VaultCorrupt
+    vault, owners = nine_accounts()
+    pool = AccountPool(owners)
+    with pytest.raises(RuntimeError, match='stopped'):
+        pool.fetch('replay',lambda *a: (_ for _ in ()).throw(RuntimeError('stopped')))
+    reboot = AccountPool(restored_nine(vault))
+    assert reboot.operator_status()['last_used_slot'] == 1
+    assert reboot.operator_status()['last_success_slot'] is None
+    assert reboot.operator_status()['next_slot'] == 2
+    vault.value['rotation']['next_slot'] = 'private-invalid-value'
+    with pytest.raises(VaultCorrupt):
+        reboot.fetch('replay',lambda *a:pytest.fail('must not fetch'))
 
 
 def test_nine_accounts_rotate_and_auth_failures_reach_ninth_without_exposing_error():

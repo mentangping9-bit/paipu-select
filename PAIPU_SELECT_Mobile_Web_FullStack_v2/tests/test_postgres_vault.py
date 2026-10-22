@@ -176,6 +176,31 @@ def test_status_has_no_db_or_game_side_effects(database):
     assert len(database.connections) == count
 
 
+def test_durable_pool_uses_one_lock_with_distinct_connection_factories(database):
+    from service_account import AccountPool, SlotVault
+    key = Fernet.generate_key().decode()
+    def owners():
+        return [ServiceAccount(f'account{i}@example.com','kr',server.Session,
+                               SlotVault(vault(key),i,'kr')) for i in range(1,10)]
+    accounts = owners()
+    for a in accounts:
+        a.enroll(session(a.email))
+    # Mirrors production: each slot and deployment has its own vault object,
+    # but all load/merge operations target one encrypted DB row/advisory lock.
+    for i in range(9):
+        pool = AccountPool(owners())
+        assert pool.fetch('replay',lambda t,s,a:a.email) == accounts[i].email
+    reboot = AccountPool(owners())
+    assert reboot.operator_status()['next_slot'] == 1
+    assert reboot.operator_status()['last_success_slot'] == 9
+    assert len(database.ciphertext) < 16384
+    assert 'private-token' not in database.ciphertext
+    count = len(database.connections)
+    reboot.operator_status()
+    reboot.flags()
+    assert len(database.connections) == count
+
+
 def test_two_deployments_cannot_refresh_the_same_snapshot(database):
     key = Fernet.generate_key().decode()
     first = vault(key)

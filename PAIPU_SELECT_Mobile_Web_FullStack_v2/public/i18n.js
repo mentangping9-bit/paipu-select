@@ -55,7 +55,7 @@ const messages = {
   "다음 조회 계정: {email}": {"ko": "다음 조회 계정: {email}", "en": "Next account: {email}", "ja": "次の取得アカウント：{email}"},
   "게임 로그인 확인 필요": {"ko": "게임 로그인 확인 필요", "en": "Game login needs attention", "ja": "ゲームログインの確認が必要"},
   "휴식 {n}초": {"ko": "휴식 {n}초", "en": "Paused for {n} seconds", "ja": "あと{n}秒休止"},
-  "다른 정상 계정 우선": {"ko": "다른 정상 계정 우선", "en": "Other healthy accounts take priority", "ja": "正常な他のアカウントを優先"},
+  "조회 제한(540) 이력 · 재시도 가능": {"ko": "조회 제한(540) 이력 · 재시도 가능", "en": "Past retrieval limit (540) · eligible to retry", "ja": "取得制限(540)の履歴 · 再試行可能"},
   "패보 조회 성공 확인": {"ko": "패보 조회 성공 확인", "en": "Replay retrieval verified", "ja": "牌譜取得成功を確認済み"},
   "인증 완료 · 조회 확인 전": {"ko": "인증 완료 · 조회 확인 전", "en": "Authenticated; retrieval not yet verified", "ja": "認証済み・取得は未確認"},
   "조회 계정 {n}에서 패보를 가져와 변환하고 있습니다.": {"ko": "조회 계정 {n}에서 패보를 가져와 변환하고 있습니다.", "en": "Fetching and converting with replay account {n}.", "ja": "取得用アカウント{n}で牌譜を取得・変換しています。"},
