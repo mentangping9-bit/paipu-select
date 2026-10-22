@@ -89,6 +89,22 @@ def test_public_responses_do_not_expose_credentials_and_include_browser_policies
         assert request(endpoint, '/')[1]['Strict-Transport-Security'] == 'max-age=15552000'
 
 
+def test_embedded_mascot_policy_is_limited_to_the_trusted_favicon(endpoint):
+    import base64
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    status, headers, raw = request(endpoint, '/assets/favicon.svg')
+    assert status == 200 and {k.lower():v for k,v in headers.items()}['content-type'].startswith('image/svg+xml')
+    assert "default-src 'none'" in headers['Content-Security-Policy']
+    assert 'img-src data:' in headers['Content-Security-Policy']
+    assert 'script-src' not in headers['Content-Security-Policy']
+    image = ET.fromstring(raw).find('{http://www.w3.org/2000/svg}image')
+    assert base64.b64decode(image.attrib['href'].split(',',1)[1]) == (Path(server.PUBLIC)/'assets/mascot.webp').read_bytes()
+    for path in ['/', '/app.js', '/api/auth/status', '/assets/mascot.webp']:
+        policy = request(endpoint,path)[1]['Content-Security-Policy']
+        assert "img-src 'self';" in policy and 'data:' not in policy
+
+
 def test_cross_site_body_type_and_oversize_are_rejected_before_fetch(endpoint):
     with patch.object(server, 'fetch_from_mahjongsoul') as fetch:
         for headers in [{'Origin':'https://evil.example'}, {'Origin':'null'},

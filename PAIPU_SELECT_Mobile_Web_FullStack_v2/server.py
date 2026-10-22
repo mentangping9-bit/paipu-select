@@ -369,7 +369,14 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('X-Frame-Options', 'DENY')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'")
+        if urlsplit(self.path).path == '/assets/favicon.svg':
+            # This immutable SVG embeds the existing mascot as a data image.
+            # Permit only that image; scripts, network requests and forms stay
+            # disabled. HTML/API responses retain their stricter image policy.
+            policy = "default-src 'none'; img-src data:; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'none'"
+        else:
+            policy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+        self.send_header('Content-Security-Policy', policy)
         if os.getenv('PUBLIC_HTTPS') == '1':
             self.send_header('Strict-Transport-Security', 'max-age=15552000')
         super().end_headers()
