@@ -50,7 +50,7 @@ TTL = 2 * 60 * 60
 MAX_JSON = 12 * 1024 * 1024
 SESSION_LIMIT = 1500
 OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
-STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js', '/clipboard.js', '/assets/wordmark.svg', '/assets/mascot.webp', '/assets/favicon.svg', '/assets/Nunito-OFL.txt', '/assets/NanumSquareRound-LICENSE.txt', '/assets/ZenMaruGothic-OFL.txt', '/assets/nanum-square-round-ko.woff2', '/assets/rounded-ja.woff2', '/assets/rounded-en.woff2'}
+STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js', '/clipboard.js', '/service-status.js', '/assets/wordmark.svg', '/assets/mascot.webp', '/assets/mascot-apology.webp', '/assets/favicon.svg', '/assets/Nunito-OFL.txt', '/assets/NanumSquareRound-LICENSE.txt', '/assets/ZenMaruGothic-OFL.txt', '/assets/nanum-square-round-ko.woff2', '/assets/rounded-ja.woff2', '/assets/rounded-en.woff2'}
 VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
 REPLAY_QUEUE_ENABLED = os.getenv('PAIPU_REPLAY_QUEUE_ENABLED', 'true').strip().lower() not in ('0', 'false', 'off')
@@ -353,6 +353,38 @@ replay_queue = ReplayQueue(replay_admission, public_fetch_error,
                            metadata=lambda:{'account_slot':service_pool.active_slot or service_pool.last_slot},
                            max_account_attempts=len(service_pool.accounts))
 
+class PublicServiceStatus:
+    """Request-driven, bounded shared status reads; never an upstream probe."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.until = 0
+        self.checked_at = None
+        self.available = False
+
+    def read(self):
+        import math
+        with self.lock:
+            now = time.monotonic()
+            if self.checked_at is None or now - self.checked_at >= 15:
+                try:
+                    if replay_admission.durable:
+                        snapshot = replay_admission.durable.public_status()
+                    else:
+                        with replay_admission.lock:
+                            remaining = max(0, replay_admission.policy_state['circuit_until'] - replay_admission.clock())
+                        snapshot = {'retry_after': remaining}
+                    self.until = now + max(0, float(snapshot['retry_after']))
+                    self.available = True
+                except (VaultUnavailable, VaultBusy, VaultCorrupt):
+                    self.available = False
+                self.checked_at = now
+            remaining = max(0, math.ceil(self.until - now))
+            return self.available, {'paused': remaining > 0, 'retry_after': remaining}
+
+
+public_service_status = PublicServiceStatus()
+
+
 class Handler(SimpleHTTPRequestHandler):
     def setup(self):
         super().setup()
@@ -363,7 +395,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _frontend_allowed(self):
         return (self.headers.get("Origin") == "https://paipu-select-web.onrender.com"
-                and urlsplit(self.path).path in ("/api/health", "/api/auth/status",
+                and urlsplit(self.path).path in ("/api/health", "/api/service/status", "/api/auth/status",
                                                 "/api/convert", "/api/convert/status"))
 
     def do_OPTIONS(self):
@@ -512,6 +544,11 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_HEAD()
 
     def do_GET(self):
+        if urlsplit(self.path).path == '/api/service/status':
+            available, data = public_service_status.read()
+            if not available:
+                return self.json_reply(503, {'code': 'SERVICE_STATUS_UNAVAILABLE'})
+            return self.json_reply(200, data)
         if urlsplit(self.path).path == '/api/convert/status':
             ticket = parse_qs(urlsplit(self.path).query).get('job', [''])[0]
             if not re.fullmatch(r'[A-Za-z0-9_-]{32}', ticket):
@@ -526,7 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.9.0',
+                                  'version': '3.9.1',
                                   'game_connection_reuse': game_connections.stats(),
                                   'sdk_refresh_reuse_seconds': 300,
                                   'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',
@@ -561,7 +598,7 @@ class Handler(SimpleHTTPRequestHandler):
             # A cached script from the previous deploy must not silently hide a
             # newly configured authentication mode. Bind assets to this build.
             html = (PUBLIC / 'index.html').read_text(encoding='utf-8')
-            for name in ('app.js', 'backend.js', 'clipboard.js', 'converter.js', 'link-utils.js', 'i18n.js', 'styles.css'):
+            for name in ('app.js', 'backend.js', 'clipboard.js', 'service-status.js', 'converter.js', 'link-utils.js', 'i18n.js', 'styles.css'):
                 html = html.replace(f'./{name}"', f'./{name}?v={BUILD}"')
             raw = html.encode('utf-8')
             self.send_response(200)

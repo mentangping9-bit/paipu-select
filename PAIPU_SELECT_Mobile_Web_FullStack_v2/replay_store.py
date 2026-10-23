@@ -117,6 +117,14 @@ class ReplayStore:
                     'retry_after':max(0,math.ceil(value['circuit_until']-now)),
                     'circuit_until':value['circuit_until'],'opened':opened,'locked_accounts':locked_count}
 
+    def public_status(self):
+        # Read-only snapshot: no game RPC, no token refresh, no advisory lock.
+        import replay_policy
+        saved, now = self.vault.protection_snapshot()
+        value = replay_policy.state((saved or {}).get('usage', {}).get('admission'))
+        remaining = max(0, value['circuit_until'] - now)
+        return {'paused': remaining > 0, 'retry_after': math.ceil(remaining)}
+
     def claim(self, limit=3, min_interval=20):
         return self.policy(claim=True,limit=limit,min_interval=min_interval)
 

@@ -18,7 +18,7 @@ function updateConvertButton(){
  clearInterval(retryTimer);retryTimer=0;btn.textContent=t('불러오기');
 }
 function setReplayCooldown(data,response){
- if(data.code==='SERVER_CONGESTED')return; // Stored replays must remain usable.
+ if(data.code==='SERVER_CONGESTED'){globalThis.PaipuServiceStatus.pause(data);return;} // Stored replays must remain usable.
  const seconds=Number(data.retry_after||response.headers.get('Retry-After'));
  if(!Number.isFinite(seconds)||seconds<1||seconds>3600)return;
  retryUntil=Date.now()+Math.ceil(seconds)*1000;clearInterval(retryTimer);

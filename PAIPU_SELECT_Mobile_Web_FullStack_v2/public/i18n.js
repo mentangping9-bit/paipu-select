@@ -2,6 +2,11 @@
 (() => {
 'use strict';
 const messages = {
+  "이용량 증가로 신규 패보 조회가 잠시 중단되었습니다.": {"ko": "이용량 증가로 신규 패보 조회가 잠시 중단되었습니다.", "en": "New replay retrievals are temporarily paused due to high demand.", "ja": "ご利用集中のため、新しい牌譜の取得を一時休止しています。"},
+  "안정적인 서비스 제공을 위해 잠시 쉬어갑니다. 이용에 불편을 드려 죄송합니다.": {"ko": "안정적인 서비스 제공을 위해 잠시 쉬어갑니다. 이용에 불편을 드려 죄송합니다.", "en": "We are taking a short break to keep the service stable. We apologize for the inconvenience.", "ja": "安定したサービス提供のため、しばらくお休みします。ご不便をおかけして申し訳ありません。"},
+  "조회 재개까지 남은 시간": {"ko": "조회 재개까지 남은 시간", "en": "Time until retrievals can resume", "ja": "取得再開までの残り時間"},
+  "재개 상태를 확인하고 있습니다.": {"ko": "재개 상태를 확인하고 있습니다.", "en": "Checking whether retrievals can resume…", "ja": "再開状況を確認しています。"},
+  "이미 저장된 패보 조회와 JSON 파일 변환은 계속 이용할 수 있습니다.": {"ko": "이미 저장된 패보 조회와 JSON 파일 변환은 계속 이용할 수 있습니다.", "en": "Cached replays and JSON file conversion remain available.", "ja": "保存済みの牌譜の取得とJSONファイルの変換は引き続きご利用いただけます。"},
   "이용량 증가에 따른 서비스 안내": {"ko":"이용량 증가에 따른 서비스 안내","en":"Service notice: increased usage","ja":"ご利用増加に伴うお知らせ"},
   "PAIPU SELECT를 이용해 주셔서 감사합니다.": {"ko":"PAIPU SELECT를 이용해 주셔서 감사합니다.","en":"Thank you for using PAIPU SELECT.","ja":"PAIPU SELECTをご利用いただき、ありがとうございます。"},
   "안정적인 서비스 제공을 위해 패보 조회·변환 요청의 처리량을 조절하고 있습니다. 이용량에 따라 대기 시간이 발생할 수 있으며, 조회 제한이 누적되면 새로운 패보 조회가 일시적으로 중단될 수 있습니다.": {"ko":"안정적인 서비스 제공을 위해 패보 조회·변환 요청의 처리량을 조절하고 있습니다. 이용량에 따라 대기 시간이 발생할 수 있으며, 조회 제한이 누적되면 새로운 패보 조회가 일시적으로 중단될 수 있습니다.","en":"To keep the service stable, we limit the rate of replay retrieval and conversion requests. You may experience a wait during busy periods. New replay retrievals may be temporarily paused if retrieval limits accumulate.","ja":"安定したサービス提供のため、牌譜の取得・変換の処理件数を制限しています。ご利用状況によりお待ちいただく場合があり、取得制限が重なると、新しい牌譜の取得を一時休止することがあります。"},

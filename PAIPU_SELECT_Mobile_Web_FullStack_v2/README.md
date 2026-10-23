@@ -1,5 +1,9 @@
 # PAIPU SELECT application
 
+## v3.9.1 · public pause notice
+
+The homepage shows the existing mascot with one tear in the usage notice. During a persisted global retrieval pause, a prominent card shows a local HH:MM:SS countdown. Anonymous `/api/service/status` exposes only `paused` and `retry_after`, with shared reads cached for 15 seconds; it never calls Mahjong Soul. Visible tabs refresh this status at most once per minute and when the countdown expires. Hidden tabs stop status polling. Cache retrieval and local JSON conversion remain available. A failed status read does not announce a reopening. The previous FIFO queue configuration is unchanged.
+
 ## v3.9.0 · conservative retrieval policy
 
 Production requests are admitted at most three per rolling minute, with at least
