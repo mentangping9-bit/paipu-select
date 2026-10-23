@@ -13,13 +13,13 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   }
 
-  function copySelection(text, textarea, html) {
+  function copySelection(text, textarea, html = null) {
     if (!textarea) return false;
     const document = textarea.ownerDocument;
     let suppliedText = false;
     const onCopy = event => {
       if (!event.clipboardData) return;
-      event.clipboardData.setData('text/html', html);
+      if (html !== null) event.clipboardData.setData('text/html', html);
       event.clipboardData.setData('text/plain', text);
       event.preventDefault();
       suppliedText = true;
@@ -48,22 +48,20 @@
     // Explicit copy-event formats use a separate native registration path.
     if (ios && copySelection(text, textarea, html)) return true;
     const clipboard = navigator.clipboard;
-    if (clipboard?.write && typeof globalThis.ClipboardItem === 'function') {
-      // HTML first preserves line boundaries in consumers preferring rich text;
-      // both representations contain exactly the same URLs, with no anchors.
-      for (const formats of [
-        {'text/html': new Blob([html], {type: 'text/html'}), 'text/plain': new Blob([text], {type: 'text/plain'})},
-        {'text/plain': new Blob([text], {type: 'text/plain'})}
-      ]) {
-        try { await clipboard.write([new ClipboardItem(formats)]); return true; }
-        catch (_) { /* Try the next supported representation. */ }
-      }
-    }
+    // Android/PC must advertise only text/plain. Supplying HTML as well lets
+    // consumers choose a rich-text conversion that can flatten raw newlines.
+    // A successful write is not proof of the receiving device's paste behavior.
     if (clipboard?.writeText) {
       try { await clipboard.writeText(text); return true; }
-      catch (_) { /* Leave the output available for manual selection. */ }
+      catch (_) { /* Try the supported plain-text representation below. */ }
     }
-    return ios ? false : copySelection(text, textarea, html);
+    if (clipboard?.write && typeof globalThis.ClipboardItem === 'function') {
+      try {
+        await clipboard.write([new ClipboardItem({'text/plain': new Blob([text], {type:'text/plain'})})]);
+        return true;
+      } catch (_) { /* Leave the URLs available for direct manual copying. */ }
+    }
+    return ios ? false : copySelection(text, textarea);
   }
 
   function inspectPaste(expected, actual) {
@@ -74,7 +72,7 @@
     let state = 'changed';
     if (!pasted) state = 'empty';
     else if (pasted === original) state = 'match';
-    else if (expectedLines > actualLines && pasted.replaceAll('\n', '') === original.replaceAll('\n', '')) state = 'linebreaks';
+    else if (expectedLines > actualLines && (pasted.replaceAll('\n', '') === original.replaceAll('\n', '') || pasted.split(/\s+/u).join('\n') === original)) state = 'linebreaks';
     return {state, expectedLines, actualLines};
   }
 

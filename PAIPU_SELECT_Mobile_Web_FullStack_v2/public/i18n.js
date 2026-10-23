@@ -2,6 +2,9 @@
 (() => {
 'use strict';
 const messages = {
+  "iPhone · 자동 복사 오류 시 사용 안내": {"ko": "iPhone · 자동 복사 오류 시 사용 안내", "en": "iPhone / automatic copy troubleshooting", "ja": "iPhone・自動コピーでうまくいかない場合"},
+  "iPhone 또는 자동 복사가 안 되면 이 버튼을 눌러 주세요": {"ko": "iPhone 또는 자동 복사가 안 되면 이 버튼을 눌러 주세요", "en": "Use this for iPhone or if automatic copying fails", "ja": "iPhoneの方・自動コピーでうまくいかない方はこちら"},
+
   "Android · PC 사용자는 이 버튼을 눌러 주세요": {"ko": "Android · PC 사용자는 이 버튼을 눌러 주세요", "en": "Android / PC users: use this button", "ja": "Android・PCの方はこちらのボタンをご利用ください"},
   "iPhone · Safari 사용 안내": {"ko": "iPhone · Safari 사용 안내", "en": "iPhone · Safari instructions", "ja": "iPhone・Safariをご利用の方へ"},
   "아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.": {"ko": "아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.", "en": "Press and hold the URL box below, choose Select All → Copy, then open NAGA without copying and paste there.", "ja": "下のURL欄を長押しして「すべて選択」→「コピー」を選んでください。その後「コピーせずNAGAを開く」を押し、貼り付けてください。"},

@@ -12,7 +12,7 @@ const parser=parserScope.NagaParser;
 const rounds=parser.parseText(fs.readFileSync('tests/fixture.json','utf8'));
 const text=parser.urlsForSelection(rounds,new Set(rounds.map(r=>r.id)),false);
 class Item{constructor(data){this.data=data;}}
-function legacy(success=true){
+function legacy(success=true,html=false){
  let handler,removed=false,prevented=false,selected=false;const values={};
  const document={
   addEventListener(type,callback,capture){assert.equal(type,'copy');assert.equal(capture,true);handler=callback;},
@@ -24,27 +24,31 @@ function legacy(success=true){
   }
  };
  const textarea={ownerDocument:document,focus(){},select(){selected=true;},setSelectionRange(a,b){assert.equal(a,0);assert.equal(b,text.length);}};
- return {textarea,check(){assert.equal(removed,true);if(success){assert.equal(values['text/plain'],text);assert.equal(values['text/html'],'<pre>'+text+'</pre>');assert.equal(prevented,true);}}};
+ return {textarea,check(){assert.equal(removed,true);if(success){assert.equal(values['text/plain'],text);if(html)assert.equal(values['text/html'],'<pre>'+text+'</pre>');else assert.equal(values['text/html'],undefined);assert.equal(prevented,true);}}};
 }
 (async()=>{
  let calls=0;
- const modern=load({clipboard:{async write(items){
-  calls++;assert.equal(items.length,1);assert.deepEqual(Object.keys(items[0].data),['text/html','text/plain']);assert.equal(await items[0].data['text/html'].text(),'<pre>'+text+'</pre>');
-  const blob=items[0].data['text/plain'];assert.equal(blob.type,'text/plain');assert.equal(await blob.text(),text);
- },async writeText(){assert.fail('must prefer explicit plain-text Blob');}}},Item);
+ const modern=load({userAgent:'Mozilla/5.0 (Linux; Android 16; SM-S911N)',clipboard:{
+  async write(){assert.fail('Android must not write HTML or use ClipboardItem before writeText');},
+  async writeText(value){calls++;assert.equal(value,text);}
+ }},Item);
  assert.equal(await modern.copyText(text),true);assert.equal(calls,1);
  assert.equal(text.split('\n').length,rounds.length);
  for(const line of text.split('\n'))assert.equal(parser.parseUrlJSON(line).log.length,1);
-
- let fallbackCalls=0;
- const unsupported=load({clipboard:{async write(){throw Error('unsupported representation');},async writeText(value){assert.equal(value,text);fallbackCalls++;}}},Item);
- assert.equal(await unsupported.copyText(text),true);assert.equal(fallbackCalls,1);
- const oldApi=load({clipboard:{async writeText(value){assert.equal(value,text);fallbackCalls++;}}});
+ let blobCalls=0;
+ const plainBlob=load({clipboard:{async writeText(){throw Error('writeText unsupported');},async write(items){
+  blobCalls++;assert.equal(items.length,1);assert.deepEqual(Object.keys(items[0].data),['text/plain']);
+  const blob=items[0].data['text/plain'];assert.equal(blob.type,'text/plain');assert.equal(await blob.text(),text);
+ }}},Item);
+ assert.equal(await plainBlob.copyText(text),true);assert.equal(blobCalls,1);
+ const blobOnly=load({clipboard:{async write(items){assert.deepEqual(Object.keys(items[0].data),['text/plain']);assert.equal(await items[0].data['text/plain'].text(),text);}}},Item);
+ assert.equal(await blobOnly.copyText(text),true);
+ const oldApi=load({clipboard:{async writeText(value){assert.equal(value,text);}}});
  assert.equal(await oldApi.copyText(text),true);
- const selection=legacy();
+ const selection=legacy(true,true);
  const selectionFirst=load({userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)',clipboard:{async write(){assert.fail('iOS copy event must precede async APIs');},async writeText(){assert.fail('iOS copy event must precede async APIs');}}},Item);
  assert.equal(await selectionFirst.copyText(text,selection.textarea),true);selection.check();
- const desktopIpad=legacy();
+ const desktopIpad=legacy(true,true);
  assert.equal(await load({platform:'MacIntel',maxTouchPoints:5}).copyText(text,desktopIpad.textarea),true);desktopIpad.check();
  const fallbackSelection=legacy();
  const denied=load({clipboard:{async write(){throw Error('denied');},async writeText(){throw Error('denied');}}},Item);
@@ -56,10 +60,12 @@ function legacy(success=true){
  assert.equal(inspect(text,text).state,'match');
  assert.equal(inspect(text,text.replaceAll('\n','\r\n')).state,'match');
  assert.equal(inspect(text,text.replaceAll('\n','')).state,'linebreaks');
+ assert.equal(inspect(text,text.replaceAll('\n',' ')).state,'linebreaks');
+ assert.equal(inspect(text,text.replaceAll('\n','\t  ')).state,'linebreaks');
  assert.equal(inspect(text,text.replaceAll('%','%25')).state,'changed');
  assert.equal(inspect(text,'').state,'empty');
- const escapeTest=load({clipboard:{async write(items){assert.equal(await items[0].data['text/html'].text(),'<pre>&lt;img src=x&gt;&amp;</pre>');}}},Item);
- assert.equal(await escapeTest.copyText('<img src=x>&'),true);
+ const exactText=load({clipboard:{async writeText(value){assert.equal(value,'<img src=x>&\nhttps://tenhou.net/5/#json=%7B%7D');}}},Item);
+ assert.equal(await exactText.copyText('<img src=x>&\nhttps://tenhou.net/5/#json=%7B%7D'),true);
 
  const app=fs.readFileSync('public/app.js','utf8');
  const begin=app.indexOf('async function openNaga()');
@@ -77,5 +83,5 @@ function legacy(success=true){
  }
  const html=fs.readFileSync('public/index.html','utf8');
  assert.ok(html.indexOf('./clipboard.js')<html.indexOf('./app.js'));
- console.log(`PASS: ${rounds.length} generated URLs retain newlines and percent encoding; synchronous copy first, escaped HTML/plain text fallbacks, pasted-text diagnostics; no navigation before copy or after failure`);
+ console.log(`PASS: ${rounds.length} generated URLs retain newlines and percent encoding; Android/PC plain-text-only copy, iOS synchronous fallback, space-flattened paste diagnostics; no navigation before copy or after failure`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
