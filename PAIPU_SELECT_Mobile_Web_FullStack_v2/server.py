@@ -508,7 +508,8 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.7.4',
+                                  'version': '3.7.5',
+                                  'operator_bulk_email_enrollment': True,
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': REPLAY_QUEUE_ENABLED,
                                   'replay_account_capacity': MAX_ACCOUNTS,
                                   'replay_account_rotation': 'round_robin',
@@ -582,11 +583,15 @@ class Handler(SimpleHTTPRequestHandler):
                 if not s.operation.acquire(blocking=False):
                     raise ValueError('인증 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.')
                 held_operation = s.operation
-                if s.code_sent and time.monotonic() - s.code_sent < 60:
-                    raise ValueError('인증 메일 재전송은 60초 후 가능합니다.')
-                # Per-address and per-client basic throttling, no email logs.
-                _throttle('email:' + email, 4, 3600)
-                _throttle('ip:' + self.client_address[0], 10, 3600)
+                # Configured service enrollment already passed operator-key
+                # verification and resolves its address from the server config.
+                # Local mail caps must not block bulk enrollment/retries. The
+                # provider can still reject a request under its own policy.
+                if not use_service:
+                    if s.code_sent and time.monotonic() - s.code_sent < 60:
+                        raise ValueError('인증 메일 재전송은 60초 후 가능합니다.')
+                    _throttle('email:' + email, 4, 3600)
+                    _throttle('ip:' + self.client_address[0], 10, 3600)
                 _converter()
                 from regional_auth import regional_client
                 client = regional_client(region, s.device_id if s.region == region else '')
@@ -637,7 +642,9 @@ class Handler(SimpleHTTPRequestHandler):
                 code = str(body.get('code', '')).strip()
                 if not re.fullmatch(r'[0-9]{4,10}', code) or not s.email or not s.device_id:
                     raise ValueError('이메일 인증코드를 입력해 주세요.')
-                _throttle('verify:' + sid, 8, 900)
+                # One account's OTP mistakes must not consume the allowance
+                # for every other account enrolled in the same browser.
+                _throttle('verify:' + sid + ':' + s.region + ':' + s.email, 8, 900)
                 _converter()
                 from regional_auth import regional_client
                 client = regional_client(s.region, s.device_id)
