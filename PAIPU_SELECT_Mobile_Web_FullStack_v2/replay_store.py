@@ -26,13 +26,19 @@ class ReplayStore:
         return hashlib.sha256(json.dumps(key, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
 
     def get(self, key):
-        with self.vault.locked():
-            try:
-                row = self.vault.local.connection.execute(
-                    'SELECT ciphertext FROM paipu_private.replay_cache '
-                    'WHERE cache_key=%s AND expires_at>clock_timestamp()', (self.key(key),)).fetchone()
-            except self.vault.driver.Error:
-                raise VaultUnavailable('패보 캐시 저장소를 읽지 못했습니다.') from None
+        # Immutable SELECTs don't need the session advisory lock. Otherwise a
+        # slow game request would block already-cached records for everyone.
+        connection = None
+        try:
+            connection = self.vault.driver.connect(**self.vault.settings, autocommit=True)
+            row = connection.execute(
+                'SELECT ciphertext FROM paipu_private.replay_cache '
+                'WHERE cache_key=%s AND expires_at>clock_timestamp()', (self.key(key),)).fetchone()
+        except self.vault.driver.Error:
+            raise VaultUnavailable('패보 캐시 저장소를 읽지 못했습니다.') from None
+        finally:
+            if connection is not None:
+                connection.close()
         if row is None:
             return None
         try:

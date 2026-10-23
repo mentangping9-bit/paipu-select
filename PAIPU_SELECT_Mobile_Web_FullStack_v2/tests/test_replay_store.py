@@ -33,10 +33,10 @@ class CacheDatabase(SimulatedDatabase):
                 return Rows([(db.now,)])
             if 'paipu_private.replay_cache' not in sql:
                 return execute(sql,params)
-            assert connection.locked
             if sql.startswith('SELECT ciphertext'):
                 entry=db.cache.get(params[0])
                 return Rows([(entry[0],)] if entry and entry[1]>db.now else [])
+            assert connection.locked
             if sql.startswith('SELECT cache_key'):
                 return Rows([(k,len(v[0])) for k,v in sorted(db.cache.items(),key=lambda x:x[1][2]) if k!=params[0]])
             if sql.startswith('INSERT'):
@@ -116,3 +116,15 @@ def test_cache_bounds_and_database_failure_do_not_fall_back_to_upstream(storage)
     db.fail=True
     with pytest.raises(VaultUnavailable):
         ReplayAdmission(durable=make()).run('uncached','one',lambda:pytest.fail('unsafe fallback'))
+
+
+def test_durable_hit_works_with_full_upstream_slots_and_held_auth_lock(storage):
+    db,make=storage;make().put('cached',{'log':[[1]]})
+    admission=ReplayAdmission(durable=make(),max_pending=1,queue_timeout=0)
+    # Model a slow authenticated request occupying all admission capacity AND
+    # the shared auth advisory lock, as observed after a production restart.
+    admission.flights['slow']=object();admission.active_visitors['another']='slow'
+    admission.worker.acquire()
+    with make().vault.locked():
+        assert admission.run('cached','normal',lambda:pytest.fail('cache hit called provider'))[1]=='DURABLE_HIT'
+    admission.worker.release()

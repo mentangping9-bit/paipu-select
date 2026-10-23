@@ -85,6 +85,20 @@ class ReplayAdmission:
             raw = self._read_cache(key, now) if read_cache else None
             if raw is not None:
                 return json.loads(raw), 'HIT'
+        # Durable hits neither queue behind provider work nor consume pending
+        # upstream slots. Keep visitor bounds, encryption and DB fail-closed.
+        if self.durable and read_cache:
+            result = self.durable.get(key)
+            if result is not None:
+                raw = json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
+                with self.lock:
+                    self._save_cache(key, raw)
+                return json.loads(raw), 'DURABLE_HIT'
+        with self.lock:
+            # A parallel leader may have completed during the DB read.
+            raw = self._read_cache(key, self.clock()) if read_cache else None
+            if raw is not None:
+                return json.loads(raw), 'HIT'
             future = self.flights.get(key)
             if future is not None:
                 if self.joiners >= 8:
@@ -114,14 +128,6 @@ class ReplayAdmission:
             acquired = self.worker.acquire(timeout=self.queue_timeout)
             if not acquired:
                 raise ReplayLimited('REPLAY_BUSY', 5, 503)
-            if self.durable and read_cache:
-                result = self.durable.get(key)
-                if result is not None:
-                    raw = json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
-                    with self.lock:
-                        self._save_cache(key, raw)
-                        future.set_result(raw)
-                    return json.loads(raw), 'DURABLE_HIT'
             with self.lock:
                 now = self.clock()
                 while self.upstream_marks and self.upstream_marks[0] <= now-60:

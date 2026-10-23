@@ -1,6 +1,6 @@
 # PAIPU SELECT application
 
-## v3.8.0 · request-driven connection reuse and durable replay cache
+## v3.8.1 · request-driven connection reuse and durable replay cache
 
 The existing KR/JP/EN OAuth wire fields are unchanged. Requests run on one lazy
 game event loop. An authenticated socket can serve subsequent requests for the
@@ -26,6 +26,9 @@ account hold. Cache hits do not call the game server and still work during that
 pause. DB read/admission errors fail closed rather than sending uncapped calls.
 Cache-write failure preserves a successful conversion and logs only its error
 type. In-flight jobs and the optional FIFO queue remain process-local.
+Durable cache reads use separate TLS SELECT connections and do not acquire the
+authentication advisory lock or upstream worker/pending slots, so already-stored
+replays remain available while the game server is busy. Visitor limits still apply.
 
 For bounded deployment verification only, `PAIPU_REUSE_VALIDATION_ID` plus
 `PAIPU_REUSE_VALIDATION_URLS` (exactly two official URLs separated by a newline)

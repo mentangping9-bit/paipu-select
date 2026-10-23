@@ -25,6 +25,22 @@ migration was tested on a Neon branch with the restricted runtime role and
 forced RLS, then applied to production without changing the auth-row ciphertext
 length or updated_at. See deployment logs/final verification for live results.
 
+Live v3.8.0 validation on Render, 2026-10-23 13:43 UTC: eligible slot 20
+retrieved the supplied Korean replay (10 rounds) and Japanese replay (14 rounds).
+The bounded probe logged `complete opened 1 reused 1`. Real-driver test-branch
+checks passed TLS, restricted role, encryption roundtrip, independent connection
+restore, wrong-key rejection and forced RLS. The two production cache entries
+contained 8,688 ciphertext bytes. After clearing the verification settings and
+redeploying, the Korean replay was restored in the UI without changing the game
+connection counters. Separate visitor requests still returned replay-stage 540
+on slots 2 and 3, so the update is not an unblock or proof of quota removal.
+
+That restart test also exposed a busy-response path for a stored Japanese replay:
+durable hits were checked after the upstream pending-capacity guard. v3.8.1 moves
+encrypted cache reads ahead of that guard and uses independent read-only queries
+without the authentication advisory lock. A regression test holds every upstream
+slot and the auth lock simultaneously and verifies a durable hit still returns.
+
 Status: actual KR account game login and retrieval of the supplied Korean replay
 succeeded on 2026-10-19. The server auth status showed authenticated=true,
 game_authenticated=true, region=kr. The first conversion response was rejected
