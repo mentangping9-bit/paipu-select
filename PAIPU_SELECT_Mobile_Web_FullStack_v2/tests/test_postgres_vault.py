@@ -198,7 +198,9 @@ def test_durable_pool_uses_one_lock_with_distinct_connection_factories(database)
     count = len(database.connections)
     reboot.operator_status()
     reboot.flags()
-    assert len(database.connections) == count
+    assert len(database.connections) == count+1  # Operator statistics reload durable state.
+    assert all(a['usage']['total'] == {'attempts':1,'successes':1,'failures':0}
+               for a in reboot.operator_status()['accounts'])
 
 
 def test_two_deployments_cannot_refresh_the_same_snapshot(database):

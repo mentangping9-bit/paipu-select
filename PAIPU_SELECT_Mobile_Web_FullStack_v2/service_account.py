@@ -11,6 +11,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+import account_usage
 from contextlib import contextmanager, nullcontext
 
 from postgres_vault import VaultUnavailable, VaultCorrupt, VaultBusy
@@ -255,7 +256,7 @@ class SlotVault:
                 profiles = dict(prior_slot.get('regional_profiles', {}))
                 if prior_slot.get('region') != value.get('region'):
                     profiles[prior_slot['region']] = {k:v for k,v in prior_slot.items()
-                        if k not in ('regional_profiles','accounts','rotation')}
+                        if k not in ('regional_profiles','accounts','rotation','usage')}
                 profiles.pop(value.get('region'), None)
                 if profiles:
                     merged_slot['regional_profiles'] = profiles
@@ -265,6 +266,8 @@ class SlotVault:
                     merged['accounts'] = previous['accounts']
                 if 'rotation' in previous:
                     merged['rotation'] = previous['rotation']
+                if 'usage' in previous:
+                    merged['usage'] = previous['usage']
             else:
                 merged = dict(previous)
                 slots = dict(merged.get('accounts', {}))
@@ -285,6 +288,7 @@ class AccountPool:
         self.cursor = 0
         self.lock = threading.RLock()
         self.active_slot = self.last_slot = self.last_success_slot = None
+        self.memory_usage = {}
         # Every SlotVault points at the same encrypted singleton row, even
         # when each account has its own PostgresVault connection factory.
         self.vault = accounts[0].vault.vault if accounts and all(
@@ -350,10 +354,16 @@ class AccountPool:
                     for i,s in enumerate(states)]}
 
     def operator_status(self):
-        with self.lock:
+        with self.lock, self.vault.locked() if self.vault else nullcontext():
+            saved = self.vault.load() if self.vault else self.memory_usage
+            if self.vault:
+                self._restore_rotation(saved)
             eligible = self.eligible()
             next_item = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts)) if eligible else None
-            return {'active_slot':self.active_slot, 'last_used_slot':self.last_slot,
+            return {'usage_started_at':(saved or {}).get('usage', {}).get('started_at'),
+                    'usage_timezone':'Asia/Seoul', 'usage_day':account_usage.day_at(self.clock()),
+                    'usage_persistent':bool(self.vault),
+                    'active_slot':self.active_slot, 'last_used_slot':self.last_slot,
                     'last_success_slot':self.last_success_slot,
                     'next_slot':next_item[0]+1 if next_item else None,
                     'accounts':[{'slot':i+1, 'email':a.email, 'region':a.region,
@@ -361,6 +371,7 @@ class AccountPool:
                         'cooldown_seconds':max(0,int(a.cooldown_until-self.clock())+1),
                         'rate_limit_count':a.rate_limit_count,
                         'last_success_at':a.last_success_at,
+                        'usage':account_usage.snapshot(saved, i+1, self.clock()),
                         'unavailable_reason':a.unavailable_reason}
                         for i,a in enumerate(self.accounts)]}
 
@@ -388,12 +399,15 @@ class AccountPool:
             tried.add(index)
             self.cursor = (index+1)%len(self.accounts)
             self.last_slot = index+1
+            saved = dict(saved or {'version':1}) if self.vault else self.memory_usage
+            account_usage.record(saved, index+1, 'attempt', self.clock())
             if self.vault:
                 # Commit before upstream I/O: failures and process restarts
                 # advance the cursor too. Never hold this lock during fetch.
                 self._save_rotation(saved)
             self.active_slot = index+1
         print('Replay account slot selected:', index+1, flush=True)
+        succeeded, failure_code = False, None
         try:
             session = account.ready_session()
             if session is None:
@@ -412,12 +426,16 @@ class AccountPool:
                     saved = self.vault.load()
                     self._restore_rotation(saved)
                 self.last_success_slot = index+1
+                account_usage.record(saved if self.vault else self.memory_usage,
+                                     index+1, 'success', self.clock())
                 if self.vault:
                     self._save_rotation(saved)
+                succeeded = True
             print('Replay account slot succeeded:', index+1, flush=True)
             return result
         except Exception as exc:
             stage, code = getattr(exc, 'stage', None), getattr(exc, 'code', None)
+            failure_code = code
             if stage == 'fetch_record' and code == 540:
                 with account.operation, account.vault_lock():
                     account.restore()
@@ -463,6 +481,18 @@ class AccountPool:
             raise
         finally:
             self.active_slot = None
+            if not succeeded:
+                try:
+                    with self.lock, self.vault.locked() if self.vault else nullcontext():
+                        saved = (self.vault.load() or {'version':1}) if self.vault else self.memory_usage
+                        account_usage.record(saved, index+1, 'failure', self.clock(), failure_code)
+                        if self.vault:
+                            # Preserve the latest rotation written by other processes.
+                            self.vault.save(saved)
+                except (VaultUnavailable, VaultCorrupt, VaultBusy):
+                    # Keep the original retrieval error; the durable attempt is
+                    # reported as unfinished when its outcome cannot be saved.
+                    print('Replay account outcome could not be stored:', index+1, flush=True)
 
 
 def _network_error(error):

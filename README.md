@@ -23,6 +23,7 @@ unverified boundaries. `/api/health` reports the executing source commit, versio
 and the separate unauthenticated gateway probe result. Version names do not
 indicate successful account login.
 
-Yostar credentials stay only in the server's memory for a two-hour idle session.
-Restarting Render clears sessions and requires a new email verification.
+Personal browser login sessions expire after two idle hours. Shared replay-account
+credentials are encrypted in the configured external session vault and restored
+after restarts; an expired or revoked provider token requires email verification.
 No password is requested. NAGA's final paid submission remains under user control.

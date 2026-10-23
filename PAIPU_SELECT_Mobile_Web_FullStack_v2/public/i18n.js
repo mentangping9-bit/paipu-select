@@ -2,6 +2,28 @@
 (() => {
 'use strict';
 const messages = {
+  "iPhone · Safari 사용 안내": {"ko": "iPhone · Safari 사용 안내", "en": "iPhone · Safari instructions", "ja": "iPhone・Safariをご利用の方へ"},
+  "아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.": {"ko": "아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.", "en": "Press and hold the URL box below, choose Select All → Copy, then open NAGA without copying and paste there.", "ja": "下のURL欄を長押しして「すべて選択」→「コピー」を選んでください。その後「コピーせずNAGAを開く」を押し、貼り付けてください。"},
+  "① 국별 천봉 URL · 길게 눌러 전체 복사": {"ko": "① 국별 천봉 URL · 길게 눌러 전체 복사", "en": "① Round URLs · press and hold to copy all", "ja": "① 局別の天鳳URL・長押ししてすべてコピー"},
+  "② 복사 없이 NAGA 열기 ↗": {"ko": "② 복사 없이 NAGA 열기 ↗", "en": "② Open NAGA without copying ↗", "ja": "② コピーせずNAGAを開く ↗"},
+  "iPhone 사용자는 이 버튼을 눌러 주세요": {"ko": "iPhone 사용자는 이 버튼을 눌러 주세요", "en": "iPhone users: use this button", "ja": "iPhoneの方はこちらのボタンをご利用ください"},
+  "이 버튼은 NAGA만 엽니다. 위 URL을 먼저 직접 복사한 뒤, NAGA 입력창에 붙여넣어 주세요.": {"ko": "이 버튼은 NAGA만 엽니다. 위 URL을 먼저 직접 복사한 뒤, NAGA 입력창에 붙여넣어 주세요.", "en": "This button only opens NAGA. Copy the URLs above yourself first, then paste them into the NAGA form.", "ja": "このボタンはNAGAを開くだけです。先に上のURLを手動でコピーし、NAGAの入力欄に貼り付けてください。"},
+  "TXT 보기·저장": {"ko": "TXT 보기·저장", "en": "View / save TXT", "ja": "TXT表示・保存"},
+  "직접 복사가 어려울 때만 TXT 화면을 이용해 주세요.": {"ko": "직접 복사가 어려울 때만 TXT 화면을 이용해 주세요.", "en": "Use the TXT view if you have trouble copying directly.", "ja": "直接コピーできない場合はTXT表示をご利用ください。"},
+  "계정별 조회 통계": {"ko": "계정별 조회 통계", "en": "Replay account usage", "ja": "アカウント別の取得統計"},
+  "집계 시작: {time} · 한국시간 기준": {"ko": "집계 시작: {time} · 한국시간 기준", "en": "Tracking since {time} · Korea time", "ja": "集計開始：{time}・韓国時間基準"},
+  "첫 조회부터 집계됩니다.": {"ko": "첫 조회부터 집계됩니다.", "en": "Tracking starts with the first retrieval.", "ja": "最初の取得から集計されます。"},
+  "캐시 재사용·대기열 확인·이메일 인증은 제외됩니다. 성공·실패는 처리 완료일 기준입니다.": {"ko": "캐시 재사용·대기열 확인·이메일 인증은 제외됩니다. 성공·실패는 처리 완료일 기준입니다.", "en": "Cache hits, queue polling and email verification are excluded. Successes and failures use the completion date.", "ja": "キャッシュ利用・待機列確認・メール認証は含みません。成功・失敗は処理完了日で集計します。"},
+  "메모리 통계: 서버 재시작 시 초기화됩니다.": {"ko": "메모리 통계: 서버 재시작 시 초기화됩니다.", "en": "Memory-only statistics reset when the server restarts.", "ja": "メモリ上の統計はサーバー再起動時にリセットされます。"},
+  "기간": {"ko": "기간", "en": "Period", "ja": "期間"},
+  "조회 시도": {"ko": "조회 시도", "en": "Attempts", "ja": "取得試行"},
+  "성공": {"ko": "성공", "en": "Success", "ja": "成功"},
+  "실패": {"ko": "실패", "en": "Failed", "ja": "失敗"},
+  "오늘": {"ko": "오늘", "en": "Today", "ja": "今日"},
+  "최근 시도: {time}": {"ko": "최근 시도: {time}", "en": "Last attempt: {time}", "ja": "最終試行：{time}"},
+  "진행 중·결과 미확인: {n}": {"ko": "진행 중·결과 미확인: {n}", "en": "In progress / unknown outcome: {n}", "ja": "処理中・結果未確認：{n}"},
+  "최근 실패: {time}": {"ko": "최근 실패: {time}", "en": "Last failure: {time}", "ja": "最終失敗：{time}"},
+
   "아이폰에서 한 줄로 붙여넣어지나요?": {"ko":"아이폰에서 한 줄로 붙여넣어지나요?","en":"Pasting as one line on iPhone?","ja":"iPhoneで1行にまとまってしまいますか？"},
   "TXT 화면에서 전체 선택·복사한 뒤, 아래 링크로 NAGA를 열어 붙여넣어 주세요. 필요한 경우 URL TXT 저장도 사용할 수 있습니다.": {"ko":"TXT 화면에서 전체 선택·복사한 뒤, 아래 링크로 NAGA를 열어 붙여넣어 주세요. 필요한 경우 URL TXT 저장도 사용할 수 있습니다.","en":"Select all and copy in the TXT view, then use the link below to open NAGA and paste. You can also save the URL TXT file if needed.","ja":"TXT表示で全選択・コピーした後、下のリンクでNAGAを開いて貼り付けてください。必要に応じて「URL TXTを保存」も利用できます。"},
   "복사 없이 NAGA 열기 ↗": {"ko":"복사 없이 NAGA 열기 ↗","en":"Open NAGA without copying ↗","ja":"コピーせずNAGAを開く ↗"},

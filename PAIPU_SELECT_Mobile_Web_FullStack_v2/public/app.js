@@ -127,7 +127,8 @@ function checkCopiedText(){
  $('copyCheckStatus').textContent=check.state==='empty'?'':t(keys[check.state],{n:check.expectedLines,m:check.actualLines});
 }
 $('copyCheckInput').addEventListener('input',checkCopiedText);
-$('iosCopyHelp').hidden=!globalThis.PaipuClipboard.isIOS();
+// iPhone users copy the visible text themselves; never overwrite that clipboard.
+$('automaticCopyActions').hidden=globalThis.PaipuClipboard.isIOS();
 let textViewUrl=null;
 function updateTextView(text){
  if(textViewUrl)URL.revokeObjectURL(textViewUrl);
@@ -244,6 +245,23 @@ function renderAccounts(data){
   lines.push(t('조회 계정 {n}',{n:a.slot})+' · '+a.email+' · '+a.region.toUpperCase()+' · '+state);
  }
  $('accountSlotStatus').textContent=lines.join('\n');
+ const date=value=>value?new Intl.DateTimeFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language],{timeZone:'Asia/Seoul',dateStyle:'short',timeStyle:'short'}).format(new Date(value*1000)):t('없음');
+ $('accountUsage').hidden=false;
+ $('usageInfo').textContent=(data.usage_started_at?t('집계 시작: {time} · 한국시간 기준',{time:date(data.usage_started_at)}):t('첫 조회부터 집계됩니다.'))+' '+t('캐시 재사용·대기열 확인·이메일 인증은 제외됩니다. 성공·실패는 처리 완료일 기준입니다.')+(data.usage_persistent?'':' '+t('메모리 통계: 서버 재시작 시 초기화됩니다.'));
+ $('usageCards').replaceChildren();
+ for(const a of data.accounts){
+  const card=document.createElement('article');card.className='usage-card';
+  const title=document.createElement('strong');title.textContent=t('조회 계정 {n}',{n:a.slot})+' · '+a.email;card.append(title);
+  const table=document.createElement('table');
+  const header=table.createTHead().insertRow();
+  for(const label of ['기간','조회 시도','성공','실패']){const th=document.createElement('th');th.scope='col';th.textContent=t(label);header.append(th);}
+  const body=table.createTBody();
+  for(const [key,label] of [['today','오늘'],['total','전체']]){const row=body.insertRow();const th=document.createElement('th');th.scope='row';th.textContent=t(label);row.append(th);for(const metric of ['attempts','successes','failures']){row.insertCell().textContent=String(a.usage?.[key]?.[metric]??0);}}
+  card.append(table);
+  const detail=document.createElement('p');detail.className='hint';detail.textContent=t('최근 시도: {time}',{time:date(a.usage?.last_attempt_at)})+' · '+t('진행 중·결과 미확인: {n}',{n:a.usage?.unfinished??0});
+  if(a.usage?.last_failure_at)detail.textContent+=' · '+t('최근 실패: {time}',{time:date(a.usage.last_failure_at)})+(Number.isInteger(a.usage.last_error_code)?' ('+a.usage.last_error_code+')':'');
+  card.append(detail);$('usageCards').append(card);
+ }
 }
 async function refreshAccounts(){
  if(!serviceSetup)return;

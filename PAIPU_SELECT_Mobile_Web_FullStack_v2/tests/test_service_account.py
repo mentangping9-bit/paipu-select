@@ -117,10 +117,12 @@ def test_anonymous_retrieval_and_operator_logout_are_independent(tmp_path):
             assert not status['email']
             assert not any(secret in json.dumps(status) for secret in ['private-token','private-uid','private-device','service@example.com'])
             assert len(converted()['log']) == 10
+            assert server.service_pool.operator_status()['accounts'][0]['usage']['total']['attempts'] == 1
             post(operator,'/api/auth/logout',{}).read()
             server.sessions.clear()  # Browser sessions may expire independently.
             assert json.load(visitor.open(base+'/api/auth/status'))['shared_game_authenticated']
             assert len(converted()['log']) == 10
+            assert server.service_pool.operator_status()['accounts'][0]['usage']['total']['attempts'] == 1  # Cached replay.
             # Simulate a new process loading only the encrypted file.
             restored = ServiceAccount('service@example.com','kr',server.Session,manager.vault)
             # A process restart also loses the nonpersistent replay cache.

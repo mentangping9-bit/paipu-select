@@ -1,6 +1,6 @@
-@font-face{font-family:'Paipu Soft Round KO';src:url('./assets/nanum-square-round-ko.woff2?v=txt-view-1') format('woff2');font-style:normal;font-weight:400;font-display:swap}
-@font-face{font-family:'Paipu Rounded JA';src:url('./assets/rounded-ja.woff2?v=txt-view-1') format('woff2');font-style:normal;font-weight:500;font-display:swap}
-@font-face{font-family:'Paipu Rounded EN';src:url('./assets/rounded-en.woff2?v=txt-view-1') format('woff2');font-style:normal;font-weight:600;font-display:swap}
+@font-face{font-family:'Paipu Soft Round KO';src:url('./assets/nanum-square-round-ko.woff2?v=manual-usage-1') format('woff2');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:'Paipu Rounded JA';src:url('./assets/rounded-ja.woff2?v=manual-usage-1') format('woff2');font-style:normal;font-weight:500;font-display:swap}
+@font-face{font-family:'Paipu Rounded EN';src:url('./assets/rounded-en.woff2?v=manual-usage-1') format('woff2');font-style:normal;font-weight:600;font-display:swap}
 .header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small,.usage-guide{font-family:'Paipu Soft Round KO',sans-serif;font-weight:400}
 :lang(ja) :is(.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small,.usage-guide){font-family:'Paipu Rounded JA',sans-serif;font-weight:500}
 :lang(en) :is(.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small,.usage-guide){font-family:'Paipu Rounded EN',sans-serif;font-weight:600}
@@ -36,3 +36,5 @@ main{padding-top:29px}.panel{padding:0 0 30px;margin:0 0 28px;border-bottom:1px 
 .copy-check{margin:16px 0;padding:12px 0;border-top:1px solid var(--line);font-size:13px}.copy-check summary{cursor:pointer;color:#806b60}.copy-check[open] summary{margin-bottom:10px}.copy-check textarea{width:100%;min-height:90px}
 
 #outputArea{white-space:pre;overflow-wrap:normal;word-break:normal;overflow:auto}#textViewLink{text-decoration:none}
+
+.manual-copy-help{padding:16px 18px;border:1px solid #d5b7ac;border-radius:10px;background:#fff6eb;margin:20px 0 16px;line-height:1.8}.manual-copy-help strong{font-size:16px}.manual-copy-help p{margin:7px 0 0;font-size:14px}.manual-naga{display:flex;width:100%;min-height:76px;flex-direction:column;justify-content:center;align-items:center;gap:6px;text-align:center;text-decoration:none;margin-top:16px;white-space:normal;line-height:1.5}.manual-naga span{font-size:20px}.manual-naga small{font-size:13px;font-weight:500}.manual-naga-note{line-height:1.8}.account-usage{margin-top:22px}.account-usage h3{font-size:16px}.usage-card{border:1px solid #d9cabb;border-radius:8px;background:#fffdf9;padding:14px;margin:12px 0;overflow-wrap:anywhere}.usage-card>strong{font-size:13px}.usage-card table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;margin-top:12px;font-variant-numeric:tabular-nums}.usage-card th,.usage-card td{padding:8px 3px;border-bottom:1px solid #ece1d8;text-align:right}.usage-card th:first-child{text-align:left}.usage-card thead{color:var(--muted)}.usage-card p{font-size:11px;margin-bottom:0}
