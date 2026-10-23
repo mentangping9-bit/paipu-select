@@ -507,7 +507,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.7.2',
+                                  'version': '3.7.3',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'replay_account_rotation': 'round_robin',
                                   'replay_max_account_attempts': replay_queue.max_account_attempts,
@@ -731,5 +731,8 @@ if __name__ == '__main__':
     print(f'Runtime Python: {sys.version.split()[0]}', flush=True)
     for slot, account in enumerate(service_pool.accounts, 1):
         print('Stored game login status:', slot, account.region, account.unavailable_reason or 'unchecked', flush=True)
+        print('Stored replay restriction:', slot,
+              'rate_limit_count', account.rate_limit_count,
+              'cooldown_seconds', max(0, int(account.cooldown_until-time.time())), flush=True)
     print(f'Paipu Select started: http://0.0.0.0:{port}')
     BoundedHTTPServer(('0.0.0.0', port), Handler).serve_forever()

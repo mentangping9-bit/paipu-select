@@ -436,6 +436,15 @@ class AccountPool:
         except Exception as exc:
             stage, code = getattr(exc, 'stage', None), getattr(exc, 'code', None)
             failure_code = code
+            # Never log exception strings or provider payloads: both can contain
+            # credentials. A numeric code and a known stage are enough to
+            # distinguish replay throttling from login/network/storage errors.
+            safe_stage = stage if stage in ('fetch_record', 'oauth_auth', 'oauth_check',
+                'oauth_login', 'account_unbound', 'sdk_login', 'sdk_refresh',
+                'client_version', 'gateway', 'connection', 'connection_result',
+                'conversion', 'record_shape', 'record_download', 'record_size') else 'unclassified'
+            print('Replay account failure:', index+1, type(exc).__name__, safe_stage,
+                  code if type(code) is int else 0, flush=True)
             if stage == 'fetch_record' and code == 540:
                 with account.operation, account.vault_lock():
                     account.restore()
