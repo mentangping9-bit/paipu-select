@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from service_account import ServiceAccount, SessionVault, SlotVault, AccountPool, AccountsCooling, MAX_ACCOUNTS
 from postgres_vault import PostgresVault, VaultBusy, VaultCorrupt, VaultUnavailable
 from replay_admission import ReplayAdmission, ReplayLimited, ReplayQueue
+from replay_policy import PER_MINUTE, MIN_INTERVAL, ACCOUNT_REST, CIRCUIT_REST, LOCKED_THRESHOLD, CONGESTION_MESSAGE
 from game_runtime import GameRuntime
 from majsoul_client import GameConnections
 
@@ -53,7 +54,8 @@ STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i
 VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
 REPLAY_QUEUE_ENABLED = os.getenv('PAIPU_REPLAY_QUEUE_ENABLED', 'true').strip().lower() not in ('0', 'false', 'off')
-replay_admission = ReplayAdmission(queue_timeout=20 if REPLAY_QUEUE_ENABLED else 0)
+replay_admission = ReplayAdmission(queue_timeout=20 if REPLAY_QUEUE_ENABLED else 0,
+                                   global_per_minute=PER_MINUTE,min_interval=MIN_INTERVAL)
 game_runtime = GameRuntime()
 game_connections = GameConnections()
 
@@ -286,6 +288,10 @@ def fetch_from_mahjongsoul(text: str, session: Session, account=None) -> dict:
 
 
 def public_fetch_error(error: Exception) -> tuple[int, dict]:
+    if isinstance(error,ReplayLimited):
+        return error.status, {'code':error.code,'retry_after':error.retry_after,
+            'retry_at':time.time()+error.retry_after,
+            'error':CONGESTION_MESSAGE if error.code=='SERVER_CONGESTED' else '요청이 많습니다. 안내된 시간 후 다시 시도해 주세요.'}
     if isinstance(error, AccountsCooling):
         return 429, {'code':'UPSTREAM_REPLAY_LIMITED', 'retry_after':error.retry_after,
                      'error':'조회 계정이 쉬는 중입니다. 대기 후 다시 시도해 주세요.'}
@@ -342,6 +348,8 @@ def public_fetch_error(error: Exception) -> tuple[int, dict]:
 
 
 replay_queue = ReplayQueue(replay_admission, public_fetch_error,
+                           spacing=MIN_INTERVAL,
+                           max_pending=30,max_wait=600,
                            metadata=lambda:{'account_slot':service_pool.active_slot or service_pool.last_slot},
                            max_account_attempts=len(service_pool.accounts))
 
@@ -518,13 +526,17 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.8.1',
+                                  'version': '3.9.0',
                                   'game_connection_reuse': game_connections.stats(),
                                   'sdk_refresh_reuse_seconds': 300,
                                   'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',
                                   'replay_limit_persistent': replay_admission.durable is not None,
                                   'operator_bulk_email_enrollment': True,
-                                  'replay_limit_per_minute': 10, 'replay_queue_enabled': REPLAY_QUEUE_ENABLED,
+                                  'replay_limit_per_minute': PER_MINUTE, 'replay_queue_enabled': REPLAY_QUEUE_ENABLED,
+                                  'replay_min_interval_seconds': MIN_INTERVAL,
+                                  'replay_account_rest_seconds': ACCOUNT_REST,
+                                  'replay_circuit_rest_seconds': CIRCUIT_REST,
+                                  'replay_circuit_locked_accounts':LOCKED_THRESHOLD,
                                   'replay_account_capacity': MAX_ACCOUNTS,
                                   'replay_account_rotation': 'round_robin',
                                   'replay_max_account_attempts': replay_queue.max_account_attempts,
@@ -579,7 +591,10 @@ class Handler(SimpleHTTPRequestHandler):
                     'error': '공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.'})
             if action == '/api/auth/accounts':
                 return self.json_reply(200, {**service_pool.operator_status(),
-                    'limit_per_minute':10, 'queue_enabled':REPLAY_QUEUE_ENABLED})
+                    'limit_per_minute':PER_MINUTE, 'queue_enabled':REPLAY_QUEUE_ENABLED,
+                    'protection':replay_admission.durable.policy() if replay_admission.durable else {
+                        'paused':replay_admission.policy_state['circuit_until']>replay_admission.clock(),
+                        'retry_after':max(0,int(replay_admission.policy_state['circuit_until']-replay_admission.clock()))}})
             if action == '/api/auth/send-code':
                 use_service = body.get('service_account') is True
                 if use_service and not service_account.configured:
@@ -640,7 +655,7 @@ class Handler(SimpleHTTPRequestHandler):
                                                             service_pool.queued_fetch(url, fetch_from_mahjongsoul))
                     else:
                         # No tickets, background retries or waiting for a free
-                        # worker. Retain serialization, cache and 10/min cap.
+                        # worker. Retain serialization, cache and 3/min cap.
                         result, cache = replay_admission.run(key, self._visitor(),
                             lambda:service_pool.fetch(url, fetch_from_mahjongsoul))
                         status = 200
@@ -683,8 +698,8 @@ class Handler(SimpleHTTPRequestHandler):
                 service_account.storage_error = True
             return self.json_reply(503, {'code': 'ACCOUNT_STORAGE_UNAVAILABLE', 'error': str(exc)})
         except ReplayLimited as exc:
-            return self.json_reply(exc.status, {'code':exc.code, 'retry_after':exc.retry_after,
-                'error':'요청이 많습니다. 안내된 시간 후 다시 시도해 주세요.'},
+            status,data=public_fetch_error(exc)
+            return self.json_reply(status,data,
                 headers={'Retry-After':exc.retry_after})
         except AccountsCooling as exc:
             status, data = public_fetch_error(exc)

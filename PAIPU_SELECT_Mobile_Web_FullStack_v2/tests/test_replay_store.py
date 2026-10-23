@@ -28,6 +28,8 @@ class CacheDatabase(SimulatedDatabase):
             def fetchone(self):return self.rows[0] if self.rows else None
             def fetchall(self):return self.rows
         def extended(sql, params=None):
+            if sql.startswith('SELECT ciphertext,extract(epoch'):
+                return Rows([(db.ciphertext,db.now)])
             if 'clock_timestamp' in sql and sql.startswith('SELECT extract'):
                 assert connection.locked
                 return Rows([(db.now,)])
@@ -84,7 +86,7 @@ def test_restart_cache_is_encrypted_expires_and_skips_upstream_claim(storage):
 def test_global_limit_survives_restart_and_serializes_two_instances(storage):
     db,make=storage
     def attempt(i):
-        try:make().claim();return 'accepted'
+        try:make().claim(limit=10,min_interval=0);return 'accepted'
         except ReplayLimited as error:return error.code
     with ThreadPoolExecutor(max_workers=4) as workers:
         results=list(workers.map(attempt,range(14)))

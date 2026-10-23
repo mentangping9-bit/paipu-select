@@ -1,5 +1,36 @@
 # PAIPU SELECT application
 
+## v3.9.0 · conservative retrieval policy
+
+Production requests are admitted at most three per rolling minute, with at least
+20 seconds between starts across deployments. Each replay-stage 540 places only
+that account in a five-hour hold. Its explicit `rate_limit_until` is separate from
+network/SDK cooldowns. Successful accounts and non-540 pauses are not counted.
+Legacy unrecovered 540 holds are upgraded from their recorded failure time,
+never from server startup; re-enrollment preserves the hold.
+
+When **17 of the 20 accounts are simultaneously in active 540 holds**, new replay
+retrievals pause for five hours from detection. This is a count of current holds,
+not consecutive errors or a 30-minute error window. The encrypted admission
+state survives redeployments. Polling, account re-enrollment, falling below 17
+and unrelated successful requests cannot shorten or extend an active global
+pause. Requests become eligible again after it expires, subject to account holds.
+
+Cached replays remain available through both synchronous and queued endpoints.
+During a global pause, new uncached requests return HTTP 503 `SERVER_CONGESTED`,
+`Retry-After`, `retry_after`, and `retry_at`, with a polite localized explanation.
+Pending tickets terminate with the same message instead of polling for hours.
+The notice doesn't disable cached-replay input or JSON upload. Operator status
+includes the current protected-pause state and active 540 account count.
+
+The FIFO queue is enabled in production, capped at 30 pending/running jobs and a
+ten-minute maximum wait. Duplicate replay requests are coalesced. A 540 waits
+at least 60 seconds before any queued retry, with at most three 540 responses per
+job; the 17-account global pause terminates retries. Neither polling nor waiting
+calls the provider. The queue remains in memory; a restart expires old tickets.
+No artificial provider failures or additional verification emails are needed to
+test these safeguards. Local tests use synthetic encrypted account records.
+
 ## v3.8.1 · request-driven connection reuse and durable replay cache
 
 The existing KR/JP/EN OAuth wire fields are unchanged. Requests run on one lazy
@@ -19,7 +50,7 @@ Fernet-encrypted with the existing server-only account key. Bounds: 30-day TTL,
 Expiration/eviction is request-driven. Cache entries are reproducible and may be
 evicted sooner when full; credential rows are never evicted.
 
-The 10/min upstream admission window is encrypted inside `usage.admission` in
+The production 3/min upstream admission window is encrypted inside `usage.admission` in
 the existing vault and serialized under its advisory lock across deployments.
 A replay-stage 540 persists a 60-second global pause as well as the existing
 account hold. Cache hits do not call the game server and still work during that
@@ -49,14 +80,14 @@ Existing databases must run `sql/expand_session_vault.sql` as the owner before
 enrolling additional slots. This only raises the encrypted row limit to 64 KiB.
 
 `PAIPU_REPLAY_QUEUE_ENABLED=false` temporarily switches shared conversions to
-synchronous requests. Serialization, cache, visitor limits and 10/min upstream
+synchronous requests. Serialization, cache, visitor limits and 3/min upstream
 admission remain active; busy/held accounts return a response without a ticket
 or background retry. Restore `true` to enable the FIFO queue.
 
 An explicitly authorized one-shot replay diagnostic can be configured with
 `PAIPU_REPLAY_DIAGNOSTIC_ID` (unique alphanumeric revision, at most 64 chars) and
 `PAIPU_REPLAY_DIAGNOSTIC_URL` (official shared replay URL). It uses one authenticated
-account even during its local cooldown, preserves all other holds, records the
+eligible account, respects all local/global holds, records the
 normal outcome, and logs only stage/code or success/round count. A durable claim
 prevents repeated calls on restart or overlapping deploys. It is off by default;
 clear both settings after the diagnostic. Public requests cannot invoke it.

@@ -1,5 +1,21 @@
 # Authentication investigation — 2026-10-19
 
+## Retrieval protection — 2026-10-23, v3.9.0
+
+Final operator policy: 3 upstream starts per rolling minute, at least 20 seconds
+apart; five-hour holds per account for replay-stage 540 only; five-hour global
+pause when **17 accounts currently have active 540 holds**. This replaces the
+proposed consecutive-error trigger, which was not deployed. The global deadline
+is fixed once opened; re-enrollment, polling, cached results and restarts do not
+shorten or extend it. Admission and holds use the existing encrypted vault.
+
+Tests exercise the 16/17 boundary with twenty synthetic encrypted accounts,
+restart and re-enrollment preservation, excluded expired/non-540 holds, legacy
+failure-time upgrade, 20-second spacing and rolling admission, pending-ticket
+termination, and HTTP 503 localized notice while cached conversions still return
+HTTP 200 without any provider calls. Real provider limits are never intentionally
+triggered to validate this behavior. Existing OAuth fields are unchanged.
+
 ## Retrieval architecture update — 2026-10-23, v3.8.0
 
 Compared Amae Koromo scripts at d375252fefd2bb6b1cca82b409b7a1abcf155197

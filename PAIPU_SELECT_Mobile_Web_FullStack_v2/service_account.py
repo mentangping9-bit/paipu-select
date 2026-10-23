@@ -71,6 +71,7 @@ class ServiceAccount:
         self.storage_error = False
         self.cooldown_until = 0
         self.rate_limit_count = 0
+        self.rate_limit_until = 0
         self.last_success_at = 0
         self.unavailable_reason = ''
         if self.email and vault:
@@ -95,6 +96,7 @@ class ServiceAccount:
                 self.session = None
                 self.cooldown_until = 0
                 self.rate_limit_count, self.last_success_at, self.unavailable_reason = 0, 0, ''
+                self.rate_limit_until = 0
             else:
                 if saved.get('email') != self.email or saved.get('region') != self.region:
                     raise VaultCorrupt('저장된 계정과 서버의 공용 계정 설정이 다릅니다.')
@@ -108,6 +110,9 @@ class ServiceAccount:
                 if not isinstance(count, int) or not 0 <= count <= 1000 or not isinstance(success, (int,float)) or not 0 <= success < 100000000000 or reason not in ('', 'account_unbound', 'oauth_auth', 'oauth_check', 'oauth_login', 'session_auth'):
                     raise VaultCorrupt('계정 상태 정보 형식이 올바르지 않습니다.')
                 self.rate_limit_count, self.last_success_at, self.unavailable_reason = count, success, reason
+                from replay_policy import account_hold
+                self.rate_limit_until=account_hold(saved)
+                self.cooldown_until=max(self.cooldown_until,self.rate_limit_until)
                 fields = {k: saved.get(k, '') for k in ('uid', 'token', 'device_id')}
                 if not all(isinstance(v, str) for v in fields.values()) or (
                         bool(fields['uid']) != bool(fields['token'])) or (
@@ -188,6 +193,7 @@ class ServiceAccount:
                              'uid': session.uid, 'token': session.token,
                              'device_id': session.device_id, 'cooldown_until': self.cooldown_until,
                              'rate_limit_count': self.rate_limit_count, 'last_success_at':self.last_success_at,
+                             'rate_limit_until':self.rate_limit_until,
                              'unavailable_reason': self.unavailable_reason})
 
     def invalidate(self, session):
@@ -239,16 +245,18 @@ class SlotVault:
     def load_from(self, saved):
         """Read one profile from an already locked, shared snapshot."""
         value = self._slot(saved)
-        if value is None or self.region is None or value.get('region') == self.region:
-            return value
-        profiles = value.get('regional_profiles', {})
-        if not isinstance(profiles, dict) or any(r not in ('kr','jp','en') for r in profiles):
-            raise VaultCorrupt('저장된 인증 지역 정보가 올바르지 않습니다.')
-        profile = profiles.get(self.region)
-        if profile is not None and not isinstance(profile, dict):
-            raise VaultCorrupt('저장된 인증 지역 정보가 올바르지 않습니다.')
-        # A valid token for KR must never be silently used as a JP/EN token.
-        return profile
+        if value is not None and self.region is not None and value.get('region') != self.region:
+            profiles = value.get('regional_profiles', {})
+            if not isinstance(profiles, dict) or any(r not in ('kr','jp','en') for r in profiles):
+                raise VaultCorrupt('저장된 인증 지역 정보가 올바르지 않습니다.')
+            value=profiles.get(self.region)
+            if value is not None and not isinstance(value,dict):
+                raise VaultCorrupt('저장된 인증 지역 정보가 올바르지 않습니다.')
+        if value is None:return None
+        from replay_policy import account_hold
+        usage=(saved or {}).get('usage',{}).get('accounts',{}).get(self.slot,{})
+        hold=account_hold(value,usage)
+        return {**value,'rate_limit_until':hold,'cooldown_until':max(value.get('cooldown_until',0),hold)}
 
     def save(self, value):
         with self.vault.locked():
@@ -286,7 +294,7 @@ class AccountsCooling(RuntimeError):
 
 
 class AccountPool:
-    def __init__(self, accounts, clock=time.time, cooldown=600):
+    def __init__(self, accounts, clock=time.time, cooldown=18000):
         self.accounts, self.clock, self.cooldown = accounts, clock, cooldown
         self.cursor = 0
         self.lock = threading.RLock()
@@ -373,6 +381,7 @@ class AccountPool:
                         'authenticated':a.status()['shared_ready'],
                         'cooldown_seconds':max(0,int(a.cooldown_until-self.clock())+1),
                         'rate_limit_count':a.rate_limit_count,
+                        'rate_limit_seconds':max(0,int(a.rate_limit_until-self.clock())),
                         'last_success_at':a.last_success_at,
                         'usage':account_usage.snapshot(saved, i+1, self.clock()),
                         'unavailable_reason':a.unavailable_reason}
@@ -400,9 +409,8 @@ class AccountPool:
                 # Internal one-shot diagnostic only. HTTP callers cannot set
                 # this argument. Keep the persisted hold and normal outcome
                 # handling; never clear all account cooldowns to run a probe.
-                account = self.registration_account(diagnostic_slot)
-                eligible = [(diagnostic_slot-1, account)] if (
-                    account.status()['shared_ready'] and not account.unavailable_reason) else []
+                self.registration_account(diagnostic_slot)
+                eligible = [(i,a) for i,a in eligible if i==diagnostic_slot-1]
             if not eligible:
                 ready = [a for i, a in enumerate(self.accounts) if i not in tried
                          and a.status()['shared_ready'] and not a.unavailable_reason]
@@ -433,6 +441,7 @@ class AccountPool:
                 account.restore()
                 account.last_success_at = self.clock()
                 account.rate_limit_count, account.cooldown_until, account.unavailable_reason = 0, 0, ''
+                account.rate_limit_until=0
                 if account.session:
                     account.session.game_verified = True
                     account.save(account.session)
@@ -461,13 +470,16 @@ class AccountPool:
             print('Replay account failure:', index+1, type(exc).__name__, safe_stage,
                   code if type(code) is int else 0, flush=True)
             if stage == 'fetch_record' and code == 540:
+                exc.account_slot=index+1
                 with account.operation, account.vault_lock():
                     account.restore()
                     account.rate_limit_count = min(1000, account.rate_limit_count+1)
-                    pause = min(3600, self.cooldown * (3 ** min(account.rate_limit_count-1, 2)))
+                    pause = max(18000,self.cooldown)
+                    account.rate_limit_until=self.clock()+pause
                     account.cooldown_until = max(account.cooldown_until, self.clock()+pause)
                     if account.session:
                         account.save(account.session)
+                exc.locked_accounts=sum(a.rate_limit_until>self.clock() for a in self.accounts)
                 ready = [a for a in self.accounts if a.status()['shared_ready'] and not a.unavailable_reason]
                 exc.retry_after = max(60, int(min(a.cooldown_until for a in ready)-self.clock())+1) if ready else 60
             elif stage in ('account_unbound','oauth_auth','oauth_check','oauth_login') and code != 151:

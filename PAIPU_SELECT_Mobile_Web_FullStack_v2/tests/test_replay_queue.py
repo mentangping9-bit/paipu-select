@@ -123,15 +123,15 @@ def test_slots_preserve_primary_and_rotated_tokens_and_cooldown_on_restart():
     def limited(text,session,account):
         seen.append(account.email);raise GameError('fetch_record',540)
     with pytest.raises(GameError) as error:pool.fetch('replay',limited)
-    assert error.value.can_retry and owners[0].cooldown_until==1600
-    assert accounts(vault)[0].cooldown_until==1600
+    assert error.value.can_retry and owners[0].cooldown_until==19000
+    assert accounts(vault)[0].cooldown_until==19000
     for _ in range(2):
         with pytest.raises(GameError):pool.fetch('replay',limited)
     assert len(set(seen))==3
     with pytest.raises(AccountsCooling) as cooling:pool.fetch('replay',lambda *a:pytest.fail('paused'))
-    assert cooling.value.retry_after==601
+    assert cooling.value.retry_after==18001
     assert 'example.com' not in str(pool.flags()) and 'secret' not in str(pool.flags())
-    now[0]=1600
+    now[0]=19000
     assert pool.fetch('replay',lambda text,s,a:a.email)=='account1@example.com'
 
 
@@ -163,8 +163,8 @@ def test_healthy_accounts_rotate_each_fetch_and_reauth_does_not_clear_540():
         pool.fetch('limited',lambda *args:(_ for _ in ()).throw(GameError('fetch_record',540)))
     assert owners[0].rate_limit_count==1
     enroll(owners[0])
-    assert owners[0].rate_limit_count==1 and owners[0].cooldown_until==1600
-    now[0]=1601
+    assert owners[0].rate_limit_count==1 and owners[0].cooldown_until==19000
+    now[0]=19001
     seen.clear()
     for _ in range(4):pool.fetch('different replay',ok)
     assert seen==[owners[1].email,owners[2].email,owners[0].email,owners[1].email]
@@ -287,7 +287,7 @@ def test_another_process_cannot_reset_cursor_or_ignore_new_cooldowns():
         first.fetch('replay',lambda *args: (_ for _ in ()).throw(GameError('fetch_record',540)))
     # Even a process created before the failure reads the committed hold/cursor.
     assert stale.fetch('replay',lambda t,s,a:a.email) == owners[1].email
-    assert stale.accounts[0].cooldown_until == 1600
+    assert stale.accounts[0].cooldown_until == 19000
     assert first.fetch('replay',lambda t,s,a:a.email) == owners[2].email
     reboot = AccountPool(restored_nine(vault), clock=lambda: 1000)
     assert reboot.operator_status()['next_slot'] == 4

@@ -2,6 +2,16 @@
 (() => {
 'use strict';
 const messages = {
+  "이용량 증가에 따른 서비스 안내": {"ko":"이용량 증가에 따른 서비스 안내","en":"Service notice: increased usage","ja":"ご利用増加に伴うお知らせ"},
+  "PAIPU SELECT를 이용해 주셔서 감사합니다.": {"ko":"PAIPU SELECT를 이용해 주셔서 감사합니다.","en":"Thank you for using PAIPU SELECT.","ja":"PAIPU SELECTをご利用いただき、ありがとうございます。"},
+  "안정적인 서비스 제공을 위해 패보 조회·변환 요청을 순서대로 처리하고 있습니다. 이용량에 따라 대기 시간이 발생할 수 있으며, 조회 제한이 누적되면 새로운 패보 조회가 일시적으로 중단될 수 있습니다.": {"ko":"안정적인 서비스 제공을 위해 패보 조회·변환 요청을 순서대로 처리하고 있습니다. 이용량에 따라 대기 시간이 발생할 수 있으며, 조회 제한이 누적되면 새로운 패보 조회가 일시적으로 중단될 수 있습니다.","en":"To keep the service stable, replay retrieval and conversion requests are processed in order. You may experience a wait during busy periods. New replay retrievals may be temporarily paused if retrieval limits accumulate.","ja":"安定したサービス提供のため、牌譜の取得・変換を受付順に行っています。ご利用状況によりお待ちいただく場合があり、取得制限が重なると、新しい牌譜の取得を一時休止することがあります。"},
+  "이용에 불편을 드려 죄송합니다. 너른 양해 부탁드립니다.": {"ko":"이용에 불편을 드려 죄송합니다. 너른 양해 부탁드립니다.","en":"We apologize for the inconvenience and appreciate your understanding.","ja":"ご不便をおかけして申し訳ありません。ご理解のほど、よろしくお願いいたします。"},
+  "540 휴식 중인 계정: {n}개 · 17개 이상이면 전체 조회 중단": {"ko":"540 휴식 중인 계정: {n}개 · 17개 이상이면 전체 조회 중단","en":"Accounts resting after 540: {n} · New retrievals pause at 17","ja":"540による休止中アカウント：{n}件・17件以上で新規取得を休止"},
+  "안정적인 서비스 제공을 위해 새로운 패보 조회를 일시적으로 중단했습니다. 안내된 시간 이후 다시 이용해 주세요.": {"ko":"안정적인 서비스 제공을 위해 새로운 패보 조회를 일시적으로 중단했습니다. 안내된 시간 이후 다시 이용해 주세요.","en":"New replay retrievals are temporarily paused to keep the service stable. Please try again after the time shown below.","ja":"安定したサービス提供のため、新しい牌譜の取得を一時休止しています。表示された時刻以降に、あらためてご利用ください。"},
+  "다시 시도할 수 있는 시간: {time}": {"ko":"다시 시도할 수 있는 시간: {time}","en":"You can try again after: {time}","ja":"再試行できる時刻：{time}"},
+  "이전에 불러온 패보와 JSON 파일은 계속 사용할 수 있습니다.": {"ko":"이전에 불러온 패보와 JSON 파일은 계속 사용할 수 있습니다.","en":"Previously retrieved replays and JSON files remain available.","ja":"取得済みの牌譜とJSONファイルは引き続きご利用いただけます。"},
+  "전체 분당 {n}건으로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.": {"ko":"전체 분당 {n}건으로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.","en":"Requests are processed in order, up to {n} per minute across all visitors. No need to submit again.","ja":"全体で毎分{n}件まで、受付順に処理します。再送信は不要です。"},
+  "신규 조회 일시 중단 · 남은 시간 {n}분": {"ko":"신규 조회 일시 중단 · 남은 시간 {n}분","en":"New retrievals paused · {n} minutes remaining","ja":"新規取得を一時休止中・あと{n}分"},
   "iPhone · 자동 복사 오류 시 사용 안내": {"ko": "iPhone · 자동 복사 오류 시 사용 안내", "en": "iPhone / automatic copy troubleshooting", "ja": "iPhone・自動コピーでうまくいかない場合"},
   "iPhone 또는 자동 복사가 안 되면 이 버튼을 눌러 주세요": {"ko": "iPhone 또는 자동 복사가 안 되면 이 버튼을 눌러 주세요", "en": "Use this for iPhone or if automatic copying fails", "ja": "iPhoneの方・自動コピーでうまくいかない方はこちら"},
 

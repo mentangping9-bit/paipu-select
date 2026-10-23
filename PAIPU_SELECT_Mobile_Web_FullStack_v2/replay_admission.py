@@ -10,6 +10,7 @@ import math
 import secrets
 import threading
 import time
+import replay_policy
 
 
 class ReplayLimited(ValueError):
@@ -23,7 +24,7 @@ class ReplayLimited(ValueError):
 class ReplayAdmission:
     def __init__(self, *, clock=time.monotonic, per_minute=12, per_hour=120,
                  global_per_minute=10, max_pending=5, queue_timeout=20,
-                 cache_ttl=900, cache_bytes=8*1024*1024, cache_entries=64, durable=None):
+                 cache_ttl=900, cache_bytes=8*1024*1024, cache_entries=64, durable=None, min_interval=0):
         self.clock = clock
         self.per_minute, self.per_hour = per_minute, per_hour
         self.global_per_minute = global_per_minute
@@ -39,6 +40,31 @@ class ReplayAdmission:
         self.active_visitors = {}
         self.joiners = 0
         self.durable = durable
+        self.min_interval = min_interval
+        self.policy_state = replay_policy.state()
+
+    def check_available(self):
+        try:
+            with self.lock:
+                replay_policy.guard(self.policy_state,self.clock())
+            if self.durable:
+                self.durable.check()
+        except ReplayLimited as error:
+            if error.code=='UPSTREAM_REPLAY_LIMITED':return error.retry_after
+            raise
+        return 0
+
+    def cached(self,key):
+        with self.lock:
+            raw=self._read_cache(key,self.clock())
+        if raw is not None:return json.loads(raw),'HIT'
+        if self.durable:
+            value=self.durable.get(key)
+            if value is not None:
+                raw=json.dumps(value,ensure_ascii=False,allow_nan=False,separators=(',',':')).encode()
+                with self.lock:self._save_cache(key,raw)
+                return json.loads(raw),'DURABLE_HIT'
+        return None,None
 
     def _visitor(self, visitor, now):
         marks = self.visitors.pop(visitor, deque())
@@ -134,12 +160,18 @@ class ReplayAdmission:
                     self.upstream_marks.popleft()
                 if len(self.upstream_marks) >= self.global_per_minute:
                     raise ReplayLimited('SERVICE_RATE_LIMITED', self.upstream_marks[0]+60-now)
+                replay_policy.guard(self.policy_state,now,limit=self.global_per_minute,
+                                    min_interval=self.min_interval,admit=True)
             if self.durable:
-                self.durable.claim(self.global_per_minute)
+                self.durable.claim(self.global_per_minute,self.min_interval)
             with self.lock:
                 self.upstream_marks.append(self.clock())
             # This callback has its own SDK/DB timeouts and cross-process lock.
             result = fetch()
+            with self.lock:
+                replay_policy.outcome(self.policy_state,self.clock(),success=True)
+            if self.durable:
+                self.durable.outcome(success=True)
             raw = json.dumps(result, ensure_ascii=False, allow_nan=False,
                              separators=(',', ':')).encode('utf-8')
             if self.durable:
@@ -152,11 +184,19 @@ class ReplayAdmission:
                 future.set_result(raw)
             return json.loads(raw), 'MISS'
         except BaseException as error:
-            if self.durable and getattr(error, 'stage', '')=='fetch_record' and getattr(error, 'code', 0)==540:
+            if getattr(error, 'stage', '')=='fetch_record' and getattr(error, 'code', 0)==540:
+                with self.lock:
+                    replay_policy.outcome(self.policy_state,self.clock(),locked_count=getattr(error,'locked_accounts',0))
                 try:
-                    self.durable.pause(60)
+                    if self.durable:
+                        result=self.durable.outcome()
+                        if result['paused']:
+                            with self.lock:
+                                self.policy_state.update(circuit_until=self.clock()+result['retry_after'])
                 except Exception as storage_error:
                     print('Replay pause write unavailable:', type(storage_error).__name__, flush=True)
+                error.global_retry_after=max(60,math.ceil(self.policy_state['circuit_until']-self.clock()))
+                error.circuit_open=self.policy_state['circuit_until']>self.clock()
             future.set_exception(error)
             raise
         finally:
@@ -250,9 +290,13 @@ class ReplayQueue:
         with self.condition:
             self._prune()
             self.admission._visitor(visitor, self.admission.clock())
-            raw = self.admission._read_cache(key, self.admission.clock())
-            if raw is not None:
-                return 200, json.loads(raw), 'HIT'
+        cached,cache_status=self.admission.cached(key)
+        if cached is not None:return 200,cached,cache_status
+        delay=self.admission.check_available()
+        with self.condition:
+            if delay:
+                self.provider_pause_until=max(self.provider_pause_until,self.admission.clock()+delay)
+                self.pause_until=max(self.pause_until,self.provider_pause_until)
             previous = self.visitors.get(visitor)
             if previous is not None and previous != key:
                 raise ReplayLimited('REPLAY_ALREADY_QUEUED', 3, 429)
@@ -349,24 +393,42 @@ class ReplayQueue:
                 raw = None
                 account_retry = getattr(exc, 'retry_kind', '') == 'account'
                 status, error = self.error_mapper(exc)
-                if getattr(exc, 'stage', None) == 'fetch_record' and getattr(exc, 'code', None) == 540:
+                if isinstance(exc,ReplayLimited) and exc.code=='SERVICE_RATE_LIMITED':
                     with self.condition:
-                        self.provider_pause_until = self.admission.clock()+self.cooldown
-                        self.pause_until = self.admission.clock()+max(self.cooldown, getattr(exc, 'retry_after', 0))
+                        self.pause_until=max(self.pause_until,self.admission.clock()+exc.retry_after)
+                    job['attempts']-=1
+                    retry=True
+                elif isinstance(exc,ReplayLimited) and exc.code=='UPSTREAM_REPLAY_LIMITED':
+                    with self.condition:
+                        self.provider_pause_until=max(self.provider_pause_until,self.admission.clock()+exc.retry_after)
+                        self.pause_until=max(self.pause_until,self.provider_pause_until)
+                    job['attempts']-=1
+                    retry=True
+                elif getattr(exc, 'stage', None) == 'fetch_record' and getattr(exc, 'code', None) == 540:
+                    global_wait=getattr(exc,'global_retry_after',self.cooldown)
+                    with self.condition:
+                        self.provider_pause_until = self.admission.clock()+max(self.cooldown,global_wait)
+                        self.pause_until = self.provider_pause_until
                     job['limited_attempts'] = job.get('limited_attempts', 0)+1
                     retry = (job['limited_attempts'] < 3 and
                              (not account_retry or getattr(exc, 'can_retry', False)))
                     status, error = 429, {'code':'UPSTREAM_REPLAY_LIMITED',
-                        'server_code':540, 'retry_after':math.ceil(max(self.cooldown, getattr(exc, 'retry_after', 0))),
+                        'server_code':540, 'retry_after':math.ceil(max(self.cooldown, global_wait)),
                         'error':'작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.'}
+                    if getattr(exc,'circuit_open',False):
+                        retry=False
+                        status,error=self.error_mapper(ReplayLimited('SERVER_CONGESTED',global_wait,503))
                 elif (getattr(exc, 'can_retry', False) and job['attempts'] <
                       (self.max_account_attempts if getattr(exc, 'retry_kind', '') == 'account' else 3)):
                     retry = True
                 elif type(exc).__name__ == 'AccountsCooling':
-                    with self.condition:
-                        self.pause_until = self.admission.clock()+exc.retry_after
-                    job['attempts'] -= 1
-                    retry = True
+                    if exc.retry_after>=self.max_wait:
+                        status,error=self.error_mapper(ReplayLimited('SERVER_CONGESTED',exc.retry_after,503))
+                    else:
+                        with self.condition:
+                            self.pause_until = self.admission.clock()+exc.retry_after
+                        job['attempts'] -= 1
+                        retry = True
             finally:
                 fetch = None
             with self.condition:
@@ -391,3 +453,13 @@ class ReplayQueue:
                 self.running = None
                 self._prune()
                 self.condition.notify_all()
+                if error and error.get('code')=='SERVER_CONGESTED':
+                    # Do not hold browsers/polling workers for a five-hour pause.
+                    # Tickets terminate with the same notice, no provider calls.
+                    for pending_key in list(self.pending):
+                        pending_job=self.jobs[pending_key]
+                        pending_job.update(state='done',finished=self.admission.clock(),status=status,error=dict(error))
+                        pending_job.pop('fetch',None)
+                        for visitor in pending_job['watchers']:
+                            self.visitors.pop(visitor,None)
+                    self.pending.clear()

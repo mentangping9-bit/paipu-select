@@ -25,8 +25,7 @@ def diagnose_replay(pool, admission, normalize_url, fetch, *, revision=None, url
             usage = account_usage.state(saved, pool.clock())
             if usage.get('replay_diagnostic_revision') == revision:
                 return
-            ready = [(i+1, a) for i, a in enumerate(pool.accounts)
-                     if a.status()['shared_ready'] and not a.unavailable_reason]
+            ready = [(i+1,a) for i,a in pool.eligible()]
             if not ready:
                 return
             slot, _ = min(ready, key=lambda item:item[1].cooldown_until)

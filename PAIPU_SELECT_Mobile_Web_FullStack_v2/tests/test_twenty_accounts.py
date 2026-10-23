@@ -62,6 +62,8 @@ def test_one_shot_diagnostic_never_repeats_on_restart_and_keeps_other_holds(data
     key=Fernet.generate_key().decode();accounts=enroll(key)
     for a in accounts:
         a.cooldown_until=1792715000;a.rate_limit_count=3;a.save(a.session)
+    # Private diagnostics also respect holds; use exactly one eligible slot.
+    accounts[0].cooldown_until=0;accounts[0].rate_limit_count=0;accounts[0].save(accounts[0].session)
     calls=[]
     def fail(url,s,a):
         calls.append(a.email)
@@ -74,7 +76,7 @@ def test_one_shot_diagnostic_never_repeats_on_restart_and_keeps_other_holds(data
     run(0)
     assert len(calls)==1
     reboot=AccountPool(owners(key),clock=lambda:1792710000)
-    assert reboot.accounts[0].rate_limit_count==4
+    assert reboot.accounts[0].rate_limit_count==1
     assert all(a.rate_limit_count==3 and a.cooldown_until==1792715000 for a in reboot.accounts[1:])
     with pytest.raises(AccountsCooling):
         reboot.fetch(URL,fail)

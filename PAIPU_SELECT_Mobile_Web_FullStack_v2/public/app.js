@@ -18,6 +18,7 @@ function updateConvertButton(){
  clearInterval(retryTimer);retryTimer=0;btn.textContent=t('불러오기');
 }
 function setReplayCooldown(data,response){
+ if(data.code==='SERVER_CONGESTED')return; // Stored replays must remain usable.
  const seconds=Number(data.retry_after||response.headers.get('Retry-After'));
  if(!Number.isFinite(seconds)||seconds<1||seconds>3600)return;
  retryUntil=Date.now()+Math.ceil(seconds)*1000;clearInterval(retryTimer);
@@ -77,7 +78,7 @@ function renderQueue(data){
  $('queueDetail').textContent=data.state==='processing'?t('작혼 패보를 가져와 변환하고 있습니다.'):
   (data.cooldown?t('작혼 조회 제한으로 잠시 쉬는 중입니다. 접수된 순서대로 자동 처리합니다.'):
   data.retrying?t('연결되지 않는 조회 계정을 건너뛰고 다른 계정으로 다시 시도합니다.'):
-  t('전체 분당 10회로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.'))+
+  t('전체 분당 {n}건으로 순서대로 처리합니다. 다시 누르지 않아도 됩니다.',{n:data.limit_per_minute||3}))+
   (data.wait_seconds>0?' '+t('조회 간격 대기: {n}초 이상',{n:data.wait_seconds}):'');
  $('convertUrlBtn').textContent=data.state==='processing'?t('패보 처리 중'):t('대기열 {n}번째',{n:data.position||1});
 }
@@ -157,6 +158,12 @@ $('urlTab').onclick=()=>switchTab('url');$('fileTab').onclick=()=>switchTab('fil
 $('resetBtn').onclick=()=>{$('inputPanel').hidden=false;$('roundPanel').hidden=true;$('resultPanel').hidden=true;clearError();$('inputPanel').scrollIntoView({behavior:'smooth'});};$('allBtn').onclick=()=>setChosen(()=>true);$('noneBtn').onclick=()=>setChosen(()=>false);$('eastBtn').onclick=()=>setChosen(r=>r.roundNo<4);$('southBtn').onclick=()=>setChosen(r=>r.roundNo>=4&&r.roundNo<8);$('generateBtn').onclick=buildOutput;$('copyBtn').onclick=copyOutput;$('downloadBtn').onclick=saveOutput;$('editBtn').onclick=()=>{$('resultPanel').hidden=true;$('roundPanel').hidden=false;};
 // Server-backed Yostar authentication; no passwords and no session token in JS storage.
 function apiError(data,status){
+ if(data.code==='SERVER_CONGESTED'){
+  const message=t('안정적인 서비스 제공을 위해 새로운 패보 조회를 일시적으로 중단했습니다. 안내된 시간 이후 다시 이용해 주세요.');
+  const retryAt=Number(data.retry_at)||(Date.now()/1000+Number(data.retry_after||0));
+  const time=new Intl.DateTimeFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(retryAt*1000));
+  return message+' '+t('다시 시도할 수 있는 시간: {time}',{time})+' '+t('이전에 불러온 패보와 JSON 파일은 계속 사용할 수 있습니다.');
+ }
  if(data.code==='UPSTREAM_REPLAY_LIMITED')return t('작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.');
  if(data.code==='REPLAY_QUEUE_EXPIRED')return t('대기 요청이 만료되었거나 서버가 재시작됐습니다. 다시 접수해 주세요.');
  if(data.code==='REPLAY_QUEUE_FULL')return t('대기열이 가득 찼습니다. 잠시 후 다시 접수해 주세요.');
@@ -239,6 +246,8 @@ function renderAccounts(data){
   t('최근 조회 계정: {email}',{email:email(data.last_used_slot)}),
   t('최근 성공 계정: {email}',{email:email(data.last_success_slot)}),
   t('다음 조회 계정: {email}',{email:email(data.next_slot)})];
+ if(data.protection?.paused)lines.unshift(t('신규 조회 일시 중단 · 남은 시간 {n}분',{n:Math.ceil(data.protection.retry_after/60)}));
+ if(Number.isInteger(data.protection?.locked_accounts))lines.push(t('540 휴식 중인 계정: {n}개 · 17개 이상이면 전체 조회 중단',{n:data.protection.locked_accounts}));
  for(const a of data.accounts){
   const state=!a.authenticated?t('최초 인증 필요'):a.unavailable_reason?t('게임 로그인 확인 필요')+' ('+a.unavailable_reason+')':
    a.cooldown_seconds>0?t('휴식 {n}초',{n:a.cooldown_seconds}):

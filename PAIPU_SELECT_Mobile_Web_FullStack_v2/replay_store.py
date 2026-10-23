@@ -9,7 +9,7 @@ import math
 import zlib
 
 from cryptography.fernet import InvalidToken
-from postgres_vault import VaultUnavailable, VaultCorrupt
+from postgres_vault import VaultUnavailable
 
 MAX_JSON_BYTES = 12*1024*1024
 MAX_CACHE_ENTRY = 2*1024*1024
@@ -90,46 +90,44 @@ class ReplayStore:
             except self.vault.driver.Error:
                 raise VaultUnavailable('패보 캐시를 저장하지 못했습니다.') from None
 
-    def claim(self, limit=10):
-        from replay_admission import ReplayLimited
+    def policy(self, *, claim=False, limit=3, min_interval=20, success=None, check=False):
+        import replay_policy
         import account_usage
         with self.vault.locked():
             try:
-                now = float(self.vault.local.connection.execute(
-                    'SELECT extract(epoch FROM clock_timestamp())').fetchone()[0])
+                now=float(self.vault.local.connection.execute('SELECT extract(epoch FROM clock_timestamp())').fetchone()[0])
             except self.vault.driver.Error:
                 raise VaultUnavailable('조회 제한 저장소를 읽지 못했습니다.') from None
-            saved = self.vault.load() or {'version':1}
-            usage = account_usage.state(saved, now)
-            state = usage.get('admission', {'marks':[], 'pause_until':0})
-            if not isinstance(state, dict):
-                raise VaultCorrupt('조회 제한 기록 형식이 올바르지 않습니다.')
-            marks, pause = state.get('marks'), state.get('pause_until')
-            if (not isinstance(marks,list) or len(marks)>10 or
-                any(type(x) not in (int,float) or not math.isfinite(x) or x<0 for x in marks) or
-                type(pause) not in (int,float) or not math.isfinite(pause) or pause<0):
-                raise VaultCorrupt('조회 제한 기록 형식이 올바르지 않습니다.')
-            if pause>now:
-                raise ReplayLimited('UPSTREAM_REPLAY_LIMITED', pause-now)
-            marks = sorted(x for x in marks if x>now-60)
-            if len(marks)>=min(10,limit):
-                raise ReplayLimited('SERVICE_RATE_LIMITED', marks[0]+60-now)
-            marks.append(now)
-            usage['admission'] = {'marks':marks, 'pause_until':pause}
-            self.vault.save(saved)
+            saved=self.vault.load() or {'version':1}
+            usage=account_usage.state(saved,now)
+            value=replay_policy.state(usage.get('admission'))
+            locked_count=replay_policy.locked_accounts(saved,now)
+            opened=replay_policy.evaluate(value,now,locked_count)
+            if opened:
+                usage['admission']=value
+                self.vault.save(saved)
+            if claim or check:
+                replay_policy.guard(value,now,limit=limit,min_interval=min_interval,admit=claim)
+            if success is not None:
+                opened=replay_policy.outcome(value,now,success=success,locked_count=locked_count) or opened
+            if claim or success is not None:
+                usage['admission']=value
+                self.vault.save(saved)
+            return {'paused':value['circuit_until']>now,
+                    'retry_after':max(0,math.ceil(value['circuit_until']-now)),
+                    'circuit_until':value['circuit_until'],'opened':opened,'locked_accounts':locked_count}
 
-    def pause(self, seconds=60):
-        import account_usage
-        with self.vault.locked():
-            try:
-                now = float(self.vault.local.connection.execute(
-                    'SELECT extract(epoch FROM clock_timestamp())').fetchone()[0])
-            except self.vault.driver.Error:
-                raise VaultUnavailable('조회 제한 저장소를 읽지 못했습니다.') from None
-            saved = self.vault.load() or {'version':1}
-            state = account_usage.state(saved, now).setdefault('admission', {'marks':[], 'pause_until':0})
-            if (not isinstance(state, dict) or type(state.get('pause_until')) not in (int,float)
-                    or not math.isfinite(state['pause_until']) or state['pause_until']<0):
-                raise VaultCorrupt('조회 제한 기록 형식이 올바르지 않습니다.')
-            state['pause_until'] = max(state['pause_until'], now+seconds)
-            self.vault.save(saved)
+    def claim(self, limit=3, min_interval=20):
+        return self.policy(claim=True,limit=limit,min_interval=min_interval)
+
+    def check(self):
+        import replay_policy
+        saved,now=self.vault.protection_snapshot()
+        value=replay_policy.state((saved or {}).get('usage',{}).get('admission'))
+        if replay_policy.evaluate(value,now,replay_policy.locked_accounts(saved,now)):
+            # Opening a previously unseen pause is serialized/persisted once.
+            return self.policy(check=True)
+        replay_policy.guard(value,now)
+
+    def outcome(self, *, success=False):
+        return self.policy(success=success)

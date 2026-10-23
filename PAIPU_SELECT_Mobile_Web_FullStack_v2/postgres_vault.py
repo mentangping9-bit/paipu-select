@@ -125,17 +125,32 @@ class PostgresVault:
                 raise VaultUnavailable('계정 저장소를 읽지 못했습니다. 서버 저장 설정을 확인해 주세요.') from None
             if row is None:
                 raise VaultUnavailable('계정 저장소의 초기 설정이 완료되지 않았습니다.')
-            if row[0] is None:
-                return None
-            try:
-                if not isinstance(row[0], str) or len(row[0]) > MAX_CIPHERTEXT_BYTES:
-                    raise ValueError()
-                saved = json.loads(self.cipher.decrypt(row[0].encode('ascii')))
-                if not isinstance(saved, dict) or saved.get('version') != 1:
-                    raise ValueError()
-                return saved
-            except (InvalidToken, ValueError, TypeError, UnicodeError):
-                raise VaultCorrupt('저장된 계정 정보를 복호화하지 못했습니다. 암호화 키를 확인해 주세요.') from None
+            return self._decode(row[0])
+
+    def _decode(self, raw):
+        if raw is None:return None
+        try:
+            if not isinstance(raw,str) or len(raw)>MAX_CIPHERTEXT_BYTES:
+                raise ValueError()
+            saved=json.loads(self.cipher.decrypt(raw.encode('ascii')))
+            if not isinstance(saved,dict) or saved.get('version')!=1:raise ValueError()
+            return saved
+        except (InvalidToken,ValueError,TypeError,UnicodeError):
+            raise VaultCorrupt('저장된 계정 정보를 복호화하지 못했습니다. 암호화 키를 확인해 주세요.') from None
+
+    def protection_snapshot(self):
+        """Non-mutating queue precheck only; token exchange still requires load/lock."""
+        connection=None
+        try:
+            connection=self.driver.connect(**self.settings,autocommit=True)
+            row=connection.execute("SELECT ciphertext,extract(epoch FROM clock_timestamp()) "
+                "FROM paipu_private.service_sessions WHERE account_key='majsoul'").fetchone()
+            if row is None:raise VaultUnavailable('계정 저장소의 초기 설정이 완료되지 않았습니다.')
+            return self._decode(row[0]),float(row[1])
+        except self.driver.Error:
+            raise VaultUnavailable('조회 제한 저장소를 읽지 못했습니다.') from None
+        finally:
+            if connection is not None:connection.close()
 
     def save(self, value):
         raw = self.cipher.encrypt(json.dumps(value, ensure_ascii=False).encode()).decode('ascii')
