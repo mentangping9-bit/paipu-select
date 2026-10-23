@@ -2,6 +2,12 @@
 (() => {
 'use strict';
 const messages = {
+  "부하 기록 시작: {time} · 이 시점 이전 요청은 최근 사용량에 포함되지 않습니다.": {"ko": "부하 기록 시작: {time} · 이 시점 이전 요청은 최근 사용량에 포함되지 않습니다.", "en": "Load tracking started: {time} · Earlier requests are not included in recent usage.", "ja": "負荷記録開始：{time}・それ以前のリクエストは直近の利用件数に含まれません。"},
+  "계정 보호를 위해 신규 조회를 조절하고 있습니다. {n}초 후 다시 시도해 주세요. 저장된 패보와 JSON 파일은 계속 이용할 수 있습니다.": {"ko": "계정 보호를 위해 신규 조회를 조절하고 있습니다. {n}초 후 다시 시도해 주세요. 저장된 패보와 JSON 파일은 계속 이용할 수 있습니다.", "en": "New retrievals are paced to protect the service accounts. Please try again in {n} seconds. Cached replays and JSON files remain available.", "ja": "アカウント保護のため新規取得を調整しています。{n}秒後に再度お試しください。保存済みの牌譜とJSONファイルは引き続きご利用いただけます。"},
+  "현재 신규 조회 간격: {n}초": {"ko": "현재 신규 조회 간격: {n}초", "en": "Current new retrieval interval: {n}s", "ja": "現在の新規取得間隔：{n}秒"},
+  "최근 10분 {short}회 · 최근 6시간 {long}회 · 보호 대기 {wait}초": {"ko": "최근 10분 {short}회 · 최근 6시간 {long}회 · 보호 대기 {wait}초", "en": "Last 10 min: {short} · Last 6 hours: {long} · Protection wait: {wait}s", "ja": "直近10分：{short}回・直近6時間：{long}回・保護待機：{wait}秒"},
+  "조회 여유 회복 간격: {n}초": {"ko": "조회 여유 회복 간격: {n}초", "en": "Retrieval credit refill interval: {n}s", "ja": "取得余裕の回復間隔：{n}秒"},
+  "복귀 후 확인 단계": {"ko": "복귀 후 확인 단계", "en": "Checking after a rest", "ja": "休止後の確認段階"},
   "이용량 증가로 신규 패보 조회가 잠시 중단되었습니다.": {"ko": "이용량 증가로 신규 패보 조회가 잠시 중단되었습니다.", "en": "New replay retrievals are temporarily paused due to high demand.", "ja": "ご利用集中のため、新しい牌譜の取得を一時休止しています。"},
   "안정적인 서비스 제공을 위해 잠시 쉬어갑니다. 이용에 불편을 드려 죄송합니다.": {"ko": "안정적인 서비스 제공을 위해 잠시 쉬어갑니다. 이용에 불편을 드려 죄송합니다.", "en": "We are taking a short break to keep the service stable. We apologize for the inconvenience.", "ja": "安定したサービス提供のため、しばらくお休みします。ご不便をおかけして申し訳ありません。"},
   "조회 재개까지 남은 시간": {"ko": "조회 재개까지 남은 시간", "en": "Time until retrievals can resume", "ja": "取得再開までの残り時間"},

@@ -18,6 +18,7 @@ function updateConvertButton(){
  clearInterval(retryTimer);retryTimer=0;btn.textContent=t('불러오기');
 }
 function setReplayCooldown(data,response){
+ if(data.code==='ACCOUNT_LOAD_LIMITED')return; // Local budgeting must not block cached replays.
  if(data.code==='SERVER_CONGESTED'){globalThis.PaipuServiceStatus.pause(data);return;} // Stored replays must remain usable.
  const seconds=Number(data.retry_after||response.headers.get('Retry-After'));
  if(!Number.isFinite(seconds)||seconds<1||seconds>3600)return;
@@ -164,6 +165,7 @@ function apiError(data,status){
   const time=new Intl.DateTimeFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language],{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(retryAt*1000));
   return message+' '+t('다시 시도할 수 있는 시간: {time}',{time})+' '+t('이전에 불러온 패보와 JSON 파일은 계속 사용할 수 있습니다.');
  }
+ if(data.code==='ACCOUNT_LOAD_LIMITED')return t('계정 보호를 위해 신규 조회를 조절하고 있습니다. {n}초 후 다시 시도해 주세요. 저장된 패보와 JSON 파일은 계속 이용할 수 있습니다.',{n:Math.max(1,Math.ceil(Number(data.retry_after)||1))});
  if(data.code==='UPSTREAM_REPLAY_LIMITED')return t('작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.');
  if(data.code==='REPLAY_QUEUE_EXPIRED')return t('대기 요청이 만료되었거나 서버가 재시작됐습니다. 다시 접수해 주세요.');
  if(data.code==='REPLAY_QUEUE_FULL')return t('대기열이 가득 찼습니다. 잠시 후 다시 접수해 주세요.');
@@ -246,6 +248,7 @@ function renderAccounts(data){
   t('최근 조회 계정: {email}',{email:email(data.last_used_slot)}),
   t('최근 성공 계정: {email}',{email:email(data.last_success_slot)}),
   t('다음 조회 계정: {email}',{email:email(data.next_slot)})];
+ if(data.scheduler?.enabled)lines.push(t('현재 신규 조회 간격: {n}초',{n:data.scheduler.interval_seconds}));
  if(data.protection?.paused)lines.unshift(t('신규 조회 일시 중단 · 남은 시간 {n}분',{n:Math.ceil(data.protection.retry_after/60)}));
  if(Number.isInteger(data.protection?.locked_accounts))lines.push(t('540 휴식 중인 계정: {n}개 · 17개 이상이면 전체 조회 중단',{n:data.protection.locked_accounts}));
  for(const a of data.accounts){
@@ -258,6 +261,7 @@ function renderAccounts(data){
  const date=value=>value?new Intl.DateTimeFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language],{timeZone:'Asia/Seoul',dateStyle:'short',timeStyle:'short'}).format(new Date(value*1000)):t('없음');
  $('accountUsage').hidden=false;
  $('usageInfo').textContent=(data.usage_started_at?t('집계 시작: {time} · 한국시간 기준',{time:date(data.usage_started_at)}):t('첫 조회부터 집계됩니다.'))+' '+t('캐시 재사용·대기열 확인·이메일 인증은 제외됩니다. 성공·실패는 처리 완료일 기준입니다.')+(data.usage_persistent?'':' '+t('메모리 통계: 서버 재시작 시 초기화됩니다.'));
+ if(data.scheduler?.started_at)$('usageInfo').textContent+=' '+t('부하 기록 시작: {time} · 이 시점 이전 요청은 최근 사용량에 포함되지 않습니다.',{time:date(data.scheduler.started_at)});
  $('usageCards').replaceChildren();
  for(const a of data.accounts){
   const card=document.createElement('article');card.className='usage-card';
@@ -270,6 +274,8 @@ function renderAccounts(data){
   card.append(table);
   const detail=document.createElement('p');detail.className='hint';detail.textContent=t('최근 시도: {time}',{time:date(a.usage?.last_attempt_at)})+' · '+t('진행 중·결과 미확인: {n}',{n:a.usage?.unfinished??0});
   if(a.usage?.last_failure_at)detail.textContent+=' · '+t('최근 실패: {time}',{time:date(a.usage.last_failure_at)})+(Number.isInteger(a.usage.last_error_code)?' ('+a.usage.last_error_code+')':'');
+  const budget=data.scheduler?.accounts?.[String(a.slot)];
+  if(budget)detail.textContent+=' · '+t('최근 10분 {short}회 · 최근 6시간 {long}회 · 보호 대기 {wait}초',{short:budget.short_attempts,long:budget.long_attempts,wait:budget.retry_after})+' · '+t('조회 여유 회복 간격: {n}초',{n:budget.refill_seconds})+(budget.probation?' · '+t('복귀 후 확인 단계'):'');
   card.append(detail);$('usageCards').append(card);
  }
 }

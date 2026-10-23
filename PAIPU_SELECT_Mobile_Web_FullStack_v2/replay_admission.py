@@ -393,7 +393,7 @@ class ReplayQueue:
                 raw = None
                 account_retry = getattr(exc, 'retry_kind', '') == 'account'
                 status, error = self.error_mapper(exc)
-                if isinstance(exc,ReplayLimited) and exc.code=='SERVICE_RATE_LIMITED':
+                if isinstance(exc,ReplayLimited) and exc.code in ('SERVICE_RATE_LIMITED','ACCOUNT_LOAD_LIMITED'):
                     with self.condition:
                         self.pause_until=max(self.pause_until,self.admission.clock()+exc.retry_after)
                     job['attempts']-=1
@@ -410,8 +410,7 @@ class ReplayQueue:
                         self.provider_pause_until = self.admission.clock()+max(self.cooldown,global_wait)
                         self.pause_until = self.provider_pause_until
                     job['limited_attempts'] = job.get('limited_attempts', 0)+1
-                    retry = (job['limited_attempts'] < 3 and
-                             (not account_retry or getattr(exc, 'can_retry', False)))
+                    retry = False  # Never cascade a provider 540 through other accounts.
                     status, error = 429, {'code':'UPSTREAM_REPLAY_LIMITED',
                         'server_code':540, 'retry_after':math.ceil(max(self.cooldown, global_wait)),
                         'error':'작혼의 패보 조회 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.'}

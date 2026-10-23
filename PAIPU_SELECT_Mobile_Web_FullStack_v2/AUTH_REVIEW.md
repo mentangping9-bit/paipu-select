@@ -1,5 +1,20 @@
 # Authentication investigation — 2026-10-19
 
+## Load-aware admission — 2026-10-24, v3.10.0
+
+Added a bounded credential-free scheduler under encrypted usage.load_scheduler.
+The production pool explicitly enables it for synchronous, queued and private
+validation fetches. All claims/outcomes reuse the token row advisory lock; slot
+auth refresh/re-enrollment preserves usage. The actual provider quotas remain
+unknown. Conservative starting rates and recovery thresholds are documented in
+README; no extra game probes or keep-alive jobs were added. Existing 17/20 and
+five-hour holds, cache-first reads, operator authorization and FIFO switch remain.
+Tests use real encryption and simulated SQL/game responses to exercise cross-
+process claims, 20-slot rotation, shrinking capacity, rolling caps, cooldowns,
+re-enrollment, slow recovery, safe queue waiting and bounded ciphertext size.
+Live 540 incidence reduction requires observation after deployment; it cannot be
+established by mocked tests or by provoking production rate-limit failures.
+
 ## Retrieval protection — 2026-10-23, v3.9.0
 
 Final operator policy: 3 upstream starts per rolling minute, at least 20 seconds

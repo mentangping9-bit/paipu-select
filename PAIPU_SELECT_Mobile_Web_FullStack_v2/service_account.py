@@ -6,12 +6,14 @@ Other accounts cannot replace it. Public visitors only receive readiness flags.
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
 import threading
 import time
 import account_usage
+import load_scheduler
 from contextlib import contextmanager, nullcontext
 
 from postgres_vault import VaultUnavailable, VaultCorrupt, VaultBusy, MAX_CIPHERTEXT_BYTES
@@ -294,8 +296,9 @@ class AccountsCooling(RuntimeError):
 
 
 class AccountPool:
-    def __init__(self, accounts, clock=time.time, cooldown=18000):
+    def __init__(self, accounts, clock=time.time, cooldown=18000, *, load_control=False):
         self.accounts, self.clock, self.cooldown = accounts, clock, cooldown
+        self.load_control = load_control
         self.cursor = 0
         self.lock = threading.RLock()
         self.active_slot = self.last_slot = self.last_success_slot = None
@@ -366,12 +369,23 @@ class AccountPool:
 
     def operator_status(self):
         with self.lock, self.vault.locked() if self.vault else nullcontext():
-            saved = self.vault.load() if self.vault else self.memory_usage
+            saved = (self.vault.load() or {'version':1}) if self.vault else self.memory_usage
             if self.vault:
                 self._restore_rotation(saved)
             eligible = self.eligible()
             next_item = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts)) if eligible else None
-            return {'usage_started_at':(saved or {}).get('usage', {}).get('started_at'),
+            schedule = None
+            if self.load_control:
+                next_item, wait, interval, views = load_scheduler.plan(saved,self.accounts,eligible,self.clock(),self.cursor)
+                schedule = {'enabled':True,'started_at':load_scheduler.state(saved).get('started_at'),'retry_after':max(0,math.ceil(wait)),
+                    'interval_seconds':round(interval,2),'global_slowdown_level':load_scheduler.state(saved)['level'],
+                    'accounts':{str(i+1):{'short_attempts':view['short'],'long_attempts':len(view['history']),
+                        'retry_after':max(0,math.ceil(max(a.cooldown_until,view['available_at'])-self.clock())),
+                        'refill_seconds':view['refill_seconds'],
+                        'slowdown_level':load_scheduler.state(saved)['accounts'][str(i+1)]['level'],
+                        'probation':load_scheduler.state(saved)['accounts'][str(i+1)]['probation']} for i,a in enumerate(self.accounts) for view in [views[i]]}}
+
+            return {'scheduler':schedule,'usage_started_at':(saved or {}).get('usage', {}).get('started_at'),
                     'usage_timezone':'Asia/Seoul', 'usage_day':account_usage.day_at(self.clock()),
                     'usage_persistent':bool(self.vault),
                     'active_slot':self.active_slot, 'last_used_slot':self.last_slot,
@@ -396,7 +410,7 @@ class AccountPool:
     def fetch(self, text, fetch, *, tried=None, diagnostic_slot=None, preferred_slot=None):
         tried = tried if tried is not None else set()
         with self.lock, self.vault.locked() if self.vault else nullcontext():
-            saved = self.vault.load() if self.vault else None
+            saved = (self.vault.load() or {'version':1}) if self.vault else self.memory_usage
             if self.vault:
                 self._restore_rotation(saved)
             eligible = self.eligible(tried)
@@ -418,7 +432,15 @@ class AccountPool:
                     raise AccountsCooling(min(a.cooldown_until for a in ready)-self.clock())
                 from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
                 raise AuthenticationRequired(self.accounts[0].region)
-            index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
+            if self.load_control:
+                selected, wait, _, _ = load_scheduler.plan(saved,self.accounts,eligible,self.clock(),self.cursor)
+                if selected is None:
+                    from replay_admission import ReplayLimited
+                    raise ReplayLimited('ACCOUNT_LOAD_LIMITED',wait)
+                index, account = selected
+                load_scheduler.claim(saved,index+1,self.clock())
+            else:
+                index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
             tried.add(index)
             self.cursor = (index+1)%len(self.accounts)
             self.last_slot = index+1
@@ -450,6 +472,8 @@ class AccountPool:
                     saved = self.vault.load()
                     self._restore_rotation(saved)
                 self.last_success_slot = index+1
+                if self.load_control:
+                    load_scheduler.outcome(saved if self.vault else self.memory_usage,index+1,self.clock(),success=True)
                 account_usage.record(saved if self.vault else self.memory_usage,
                                      index+1, 'success', self.clock())
                 if self.vault:
@@ -521,6 +545,8 @@ class AccountPool:
                 try:
                     with self.lock, self.vault.locked() if self.vault else nullcontext():
                         saved = (self.vault.load() or {'version':1}) if self.vault else self.memory_usage
+                        if self.load_control:
+                            load_scheduler.outcome(saved,index+1,self.clock(),limited=(safe_stage=='fetch_record' and failure_code==540))
                         account_usage.record(saved, index+1, 'failure', self.clock(), failure_code)
                         if self.vault:
                             # Preserve the latest rotation written by other processes.

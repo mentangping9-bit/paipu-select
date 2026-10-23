@@ -73,7 +73,7 @@ def test_queue_ownership_coalescing_overflow_and_expiry():
     assert queue.status(first['job'],'a')[0]==404
 
 
-def test_540_pauses_whole_queue_and_retries_only_with_ready_backup():
+def test_540_pauses_whole_queue_without_cascading_to_ready_backup():
     now=[0.0];calls=[]
     queue=ReplayQueue(ReplayAdmission(clock=lambda:now[0]),public_fetch_error,spacing=0)
     def fetch():
@@ -84,14 +84,14 @@ def test_540_pauses_whole_queue_and_retries_only_with_ready_backup():
     _,first,_=queue.submit('one','a',fetch)
     eventually(lambda:queue.pause_until==60)
     _,second,_=queue.submit('two','b',lambda:{'log':[2]})
-    state=queue.status(first['job'],'a')[1]
-    assert state['state']=='queued' and state['cooldown'] and state['wait_seconds']==60
-    assert queue.status(second['job'],'b')[1]['position']==2
+    status,error=queue.status(first['job'],'a')
+    assert status==429 and error['server_code']==540
+    assert queue.status(second['job'],'b')[1]['position']==1
     advance(queue,now,59)
     assert calls==[0]
     advance(queue,now,60)
     eventually(lambda:queue.status(second['job'],'b')[0]==200)
-    assert queue.status(first['job'],'a')[0]==200 and calls==[0,60]
+    assert queue.status(first['job'],'a')[0]==429 and calls==[0]
 
 
 class MemoryVault:
@@ -143,9 +143,9 @@ def test_persistent_540_is_bounded_and_pending_deadline_never_fetches():
     eventually(lambda:len(calls)==1 and queue.running is None)
     for step in (60,120):
         advance(queue,now,step)
-        eventually(lambda:len(calls)==step//60+1 and queue.running is None)
+        assert len(calls)==1 and queue.running is None
     status,error=queue.status(job['job'],'a')
-    assert status==429 and error['server_code']==540 and len(calls)==3
+    assert status==429 and error['server_code']==540 and len(calls)==1
     queue.pause_until=1000
     _,expired,_=queue.submit('expire','b',lambda:pytest.fail('expired request must not fetch'))
     advance(queue,now,1920)

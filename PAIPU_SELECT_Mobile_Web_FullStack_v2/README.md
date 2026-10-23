@@ -1,5 +1,40 @@
 # PAIPU SELECT application
 
+## v3.10.0 · load-aware account scheduling
+
+The production pool prefers lower-penalty accounts, then remaining credit and
+short/long-window utilization, with oldest attempt as the tie-break, instead of
+blindly advancing the slot. Recovery accounts are not preferred over healthy
+accounts merely because they rested longer.
+These are **conservative application settings, not verified provider quotas**:
+
+- Minimum 400 seconds per account; at most 2 attempts per rolling 10 minutes
+  and 18 per rolling 6 hours. Failure attempts consume the same budget.
+- A normal account refills one local credit per 1,200 seconds, stores at most
+  three and starts migration with one. With 20 fully usable accounts, the whole
+  service starts at about one new retrieval per minute (the outer 3/min cap is
+  retained). Fewer usable accounts or penalties reduce this throughput.
+- Replay-stage 540 retains the five-hour hold and doubles that account's refill
+  interval, up to 8x. It returns with one trial credit; a successful trial
+  discards accumulated holiday credits and preserves the refill penalty.
+- Two distinct accounts reporting 540 within 10 minutes double the shared
+  scheduling interval (up to 8x). Events used for a slowdown are consumed, so
+  the same pair cannot repeatedly trigger a slowdown. A non-replay/auth error
+  does not count toward this signal.
+- Recovery never follows idle time alone: one penalty level is removed only
+  after at least six hours without 540 and 10 actual successes for an account,
+  or 60 actual successes for the global scheduler. These operational thresholds
+  do not constitute a statistical guarantee of safe provider capacity.
+- The existing 17-account / five-hour global stop remains unchanged. A 540 is
+  returned once; even when FIFO is enabled, the failed replay is not cascaded
+  automatically through backup accounts. FIFO's production switch is unchanged.
+- Bounded histories, credits, penalties and starts are encrypted in the existing
+  usage row and claimed under the existing cross-process advisory lock before
+  I/O. Re-enrollment and redeploys do not reset them. No new tables or services.
+- Operator-only statistics show window counts, credit refill interval, probation
+  and protection wait. Public local-budget waits use ACCOUNT_LOAD_LIMITED and
+  do not disable cached replay retrieval or local JSON conversion.
+
 ## v3.9.1 · public pause notice
 
 The homepage shows the existing mascot with one tear in the usage notice. During a persisted global retrieval pause, a prominent card shows a local HH:MM:SS countdown. Anonymous `/api/service/status` exposes only `paused` and `retry_after`, with shared reads cached for 15 seconds; it never calls Mahjong Soul. Visible tabs refresh this status at most once per minute and when the countdown expires. Hidden tabs stop status polling. Cache retrieval and local JSON conversion remain available. A failed status read does not announce a reopening. The previous FIFO queue configuration is unchanged.

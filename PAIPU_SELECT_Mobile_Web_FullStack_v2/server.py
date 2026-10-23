@@ -134,7 +134,7 @@ def configure_service_account(slot=1):
 
 service_account = configure_service_account()
 service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in range(2, MAX_ACCOUNTS+1)
-                          if os.getenv(f'PAIPU_SERVICE_EMAIL_{slot}')])
+                          if os.getenv(f'PAIPU_SERVICE_EMAIL_{slot}')],load_control=True)
 if isinstance(service_pool.vault, PostgresVault):
     from replay_store import ReplayStore
     replay_admission.durable = ReplayStore(service_pool.vault)
@@ -563,7 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.9.1',
+                                  'version': '3.10.0',
                                   'game_connection_reuse': game_connections.stats(),
                                   'sdk_refresh_reuse_seconds': 300,
                                   'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',
@@ -575,7 +575,11 @@ class Handler(SimpleHTTPRequestHandler):
                                   'replay_circuit_rest_seconds': CIRCUIT_REST,
                                   'replay_circuit_locked_accounts':LOCKED_THRESHOLD,
                                   'replay_account_capacity': MAX_ACCOUNTS,
-                                  'replay_account_rotation': 'round_robin',
+                                  'replay_account_rotation': 'remaining_budget' if service_pool.load_control else 'round_robin',
+                                  'replay_load_control': {'enabled':service_pool.load_control,'account_min_gap_seconds':400,
+                                      'short_window_seconds':600,'short_limit':2,
+                                      'long_window_seconds':21600,'long_limit':18,
+                                      'base_refill_seconds':1200,'policy_is_provider_quota':False},
                                   'replay_max_account_attempts': replay_queue.max_account_attempts,
                                   'replay_queue_capacity': replay_queue.max_pending,
                                   'build_commit': BUILD,
