@@ -384,13 +384,18 @@ class AccountPool:
         tried = set()
         return lambda: self.fetch(text, fetch, tried=tried)
 
-    def fetch(self, text, fetch, *, tried=None, diagnostic_slot=None):
+    def fetch(self, text, fetch, *, tried=None, diagnostic_slot=None, preferred_slot=None):
         tried = tried if tried is not None else set()
         with self.lock, self.vault.locked() if self.vault else nullcontext():
             saved = self.vault.load() if self.vault else None
             if self.vault:
                 self._restore_rotation(saved)
             eligible = self.eligible(tried)
+            if preferred_slot is not None:
+                # Validation can reuse one healthy connection; it cannot bypass
+                # a provider hold or choose a slot through a public request.
+                self.registration_account(preferred_slot)
+                eligible = [(i,a) for i,a in eligible if i==preferred_slot-1]
             if diagnostic_slot is not None:
                 # Internal one-shot diagnostic only. HTTP callers cannot set
                 # this argument. Keep the persisted hold and normal outcome

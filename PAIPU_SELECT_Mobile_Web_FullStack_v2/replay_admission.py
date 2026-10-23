@@ -1,7 +1,7 @@
 """Bound upstream work while allowing normal browser use and duplicate replays.
 
 Only completed replay JSON is cached. No credentials or caller IPs are stored.
-Counters/cache are intentionally process-local; session durability is separate.
+Optional encrypted PostgreSQL storage shares cache/admission across deployments.
 """
 from collections import OrderedDict, deque
 from concurrent.futures import Future, TimeoutError as FutureTimeout
@@ -23,7 +23,7 @@ class ReplayLimited(ValueError):
 class ReplayAdmission:
     def __init__(self, *, clock=time.monotonic, per_minute=12, per_hour=120,
                  global_per_minute=10, max_pending=5, queue_timeout=20,
-                 cache_ttl=900, cache_bytes=8*1024*1024, cache_entries=64):
+                 cache_ttl=900, cache_bytes=8*1024*1024, cache_entries=64, durable=None):
         self.clock = clock
         self.per_minute, self.per_hour = per_minute, per_hour
         self.global_per_minute = global_per_minute
@@ -38,6 +38,7 @@ class ReplayAdmission:
         self.flights = {}
         self.active_visitors = {}
         self.joiners = 0
+        self.durable = durable
 
     def _visitor(self, visitor, now):
         marks = self.visitors.pop(visitor, deque())
@@ -76,12 +77,12 @@ class ReplayAdmission:
             _, (_, removed) = self.cache.popitem(last=False)
             self.cached_bytes -= len(removed)
 
-    def run(self, key, visitor, fetch, *, charge=True):
+    def run(self, key, visitor, fetch, *, charge=True, read_cache=True):
         with self.lock:
             now = self.clock()
             if charge:
                 self._visitor(visitor, now)
-            raw = self._read_cache(key, now)
+            raw = self._read_cache(key, now) if read_cache else None
             if raw is not None:
                 return json.loads(raw), 'HIT'
             future = self.flights.get(key)
@@ -113,22 +114,43 @@ class ReplayAdmission:
             acquired = self.worker.acquire(timeout=self.queue_timeout)
             if not acquired:
                 raise ReplayLimited('REPLAY_BUSY', 5, 503)
+            if self.durable and read_cache:
+                result = self.durable.get(key)
+                if result is not None:
+                    raw = json.dumps(result, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
+                    with self.lock:
+                        self._save_cache(key, raw)
+                        future.set_result(raw)
+                    return json.loads(raw), 'DURABLE_HIT'
             with self.lock:
                 now = self.clock()
                 while self.upstream_marks and self.upstream_marks[0] <= now-60:
                     self.upstream_marks.popleft()
                 if len(self.upstream_marks) >= self.global_per_minute:
                     raise ReplayLimited('SERVICE_RATE_LIMITED', self.upstream_marks[0]+60-now)
-                self.upstream_marks.append(now)
+            if self.durable:
+                self.durable.claim(self.global_per_minute)
+            with self.lock:
+                self.upstream_marks.append(self.clock())
             # This callback has its own SDK/DB timeouts and cross-process lock.
             result = fetch()
             raw = json.dumps(result, ensure_ascii=False, allow_nan=False,
                              separators=(',', ':')).encode('utf-8')
+            if self.durable:
+                try:
+                    self.durable.put(key, result)
+                except Exception as error:
+                    print('Replay cache write unavailable:', type(error).__name__, flush=True)
             with self.lock:
                 self._save_cache(key, raw)
                 future.set_result(raw)
             return json.loads(raw), 'MISS'
         except BaseException as error:
+            if self.durable and getattr(error, 'stage', '')=='fetch_record' and getattr(error, 'code', 0)==540:
+                try:
+                    self.durable.pause(60)
+                except Exception as storage_error:
+                    print('Replay pause write unavailable:', type(storage_error).__name__, flush=True)
             future.set_exception(error)
             raise
         finally:

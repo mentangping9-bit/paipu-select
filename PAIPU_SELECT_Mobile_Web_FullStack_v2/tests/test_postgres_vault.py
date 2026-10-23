@@ -123,7 +123,7 @@ def test_latest_token_loaded_before_refresh_and_saved_before_game_call(database)
     client = type('Client', (), {'refresh': AsyncMock(return_value=YostarSession(
         'private-uid', 'rotated-secret', 'private-device'))})()
 
-    async def game_failure(*args):
+    async def game_failure(*args, **kwargs):
         # The write is already committed, with the global lock still held.
         assert store.load()['token'] == 'rotated-secret'
         assert database.lock.locked()

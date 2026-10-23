@@ -14,8 +14,11 @@ import re
 import time
 from urllib.parse import urlsplit
 import uuid
+import hashlib
+import threading
 
 import aiohttp
+import websockets
 from ms import protocol_pb2 as pb
 from ms.base import MSRPCChannel
 from ms.rpc import Lobby
@@ -31,6 +34,15 @@ class GameError(RemoteReplayError):
     def __init__(self, stage: str, code: int = 0):
         self.stage, self.code = stage, code
         super().__init__(f"Game stage {stage}: code {code}")
+
+
+class RequestChannel(MSRPCChannel):
+    async def connect(self, ms_host):
+        # Idle sockets close on a finite timer. Do not send periodic pings or
+        # game heartbeats to keep free infrastructure or sessions alive.
+        self._ws = await websockets.connect(self._endpoint, origin=ms_host,
+            ping_interval=None, open_timeout=20, max_size=MAX_RECORD+65536)
+        self._msg_dispatcher = asyncio.create_task(self.dispatch_msg())
 
 
 @dataclass(frozen=True)
@@ -190,13 +202,141 @@ async def download_record(url):
             return b"".join(chunks)
 
 
-async def fetch_record(replay_id, session, region):
+async def _read_record(lobby, replay_id, profile):
+    request = pb.ReqGameRecord(game_uuid=replay_id, client_version_string=profile.version_string)
+    record = await asyncio.wait_for(lobby.fetch_game_record(request), timeout=25)
+    if record.error.code == 151:
+        await rpc("read_record", lobby.read_game_record(request))
+        record = await asyncio.wait_for(lobby.fetch_game_record(request), timeout=25)
+    if record.error.code:
+        raise GameError("fetch_record", record.error.code)
+    if record.head.uuid != replay_id or len(record.head.accounts) != 4:
+        raise GameError("record_shape")
+    if not record.data and record.data_url:
+        record.data = await download_record(record.data_url)
+    if not record.data or len(record.data) > MAX_RECORD:
+        raise GameError("record_size")
+    try:
+        return _convert_record(record)
+    except RemoteReplayError as exc:
+        raise GameError("conversion") from exc
+
+
+async def _close_channel(channel):
+    if channel._ws is not None:
+        with suppress(Exception):
+            await asyncio.wait_for(channel.close(), timeout=3)
+
+
+class GameConnections:
+    """Reuse authenticated connections only while requests keep arriving.
+
+    All methods that mutate connections run on the server's one game event loop.
+    Finite idle timers close sockets; they never send RPCs or keep a host awake.
+    """
+    def __init__(self, idle_seconds=300, max_age=900, capacity=20, clock=time.monotonic):
+        self.idle_seconds, self.max_age, self.capacity = idle_seconds, max_age, capacity
+        self.clock = clock
+        self.entries = {}
+        self.counts = {'opened':0, 'reused':0, 'closed':0}
+        self.stats_lock = threading.Lock()
+        self.operation = asyncio.Lock()
+
+    def stats(self):
+        with self.stats_lock:
+            return {**self.counts, 'active':len(self.entries)}
+
+    async def discard(self, key, expected=None):
+        entry = self.entries.get(key)
+        if entry is None or (expected is not None and entry is not expected):
+            return
+        self.entries.pop(key, None)
+        if entry.get('timer'):
+            entry['timer'].cancel()
+        await _close_channel(entry['channel'])
+        with self.stats_lock:
+            self.counts['closed'] += 1
+
+    async def close_all(self):
+        for key in list(self.entries):
+            await self.discard(key)
+
+    def _alive(self, entry):
+        dispatcher = getattr(entry['channel'], '_msg_dispatcher', None)
+        return (not entry.get('invalid') and entry['channel']._ws is not None
+                and (dispatcher is None or not dispatcher.done())
+                and self.clock()-entry['created'] < self.max_age)
+
+    async def fetch(self, replay_id, session, profile):
+        async with self.operation:
+            return await self._fetch(replay_id, session, profile)
+
+    async def _fetch(self, replay_id, session, profile):
+        # Keep secrets out of keys/stats/logs. A rotated/re-enrolled SDK token
+        # invalidates the old game connection, even for the same account.
+        key = (profile.region, hashlib.sha256((session.uid+'\0'+session.device_id).encode()).hexdigest())
+        fingerprint = hashlib.sha256(session.token.encode()).digest()
+        entry = self.entries.get(key)
+        if entry and (entry['token'] != fingerprint or entry['profile'] != profile or not self._alive(entry)):
+            await self.discard(key, entry)
+            entry = None
+        if entry is None:
+            if len(self.entries) >= self.capacity:
+                oldest = min(self.entries, key=lambda k:self.entries[k]['used'])
+                await self.discard(oldest)
+            routes = await bootstrap(profile)
+            for index, (endpoint, route_id) in enumerate(routes):
+                channel = RequestChannel(endpoint)
+                try:
+                    await connect(channel, profile, route_id)
+                    lobby = Lobby(channel)
+                    await login(lobby, session, profile)
+                    entry = {'channel':channel, 'lobby':lobby, 'profile':profile,
+                             'token':fingerprint, 'created':self.clock(), 'used':self.clock(),
+                             'invalid':False, 'timer':None, 'lock':asyncio.Lock()}
+                    async def logged_out(_data, current=entry):
+                        current['invalid'] = True
+                    channel.add_hook('.lq.NotifyAccountLogout', logged_out)
+                    self.entries[key] = entry
+                    with self.stats_lock:
+                        self.counts['opened'] += 1
+                    break
+                except (OSError, TimeoutError, aiohttp.ClientError):
+                    await _close_channel(channel)
+                    if index == len(routes)-1:
+                        raise GameError('gateway') from None
+                except BaseException:
+                    await _close_channel(channel)
+                    raise
+        else:
+            with self.stats_lock:
+                self.counts['reused'] += 1
+        if entry.get('timer'):
+            entry['timer'].cancel()
+        try:
+            async with entry['lock']:
+                return await _read_record(entry['lobby'], replay_id, profile)
+        except BaseException:
+            # Surface the original provider error once; never retry a 540 by
+            # reconnecting or silently repeating the same replay request.
+            await self.discard(key, entry)
+            raise
+        finally:
+            if self.entries.get(key) is entry:
+                entry['used'] = self.clock()
+                entry['timer'] = asyncio.get_running_loop().call_later(
+                    self.idle_seconds, lambda:asyncio.create_task(self.discard(key, entry)))
+
+
+async def fetch_record(replay_id, session, region, *, connections=None):
     from version_resolver import resolve
     try:
         resolved = await resolve(region)
     except Exception as exc:
         raise GameError('client_version') from exc
     profile = Profile(region, product=resolved['product'], resource=resolved['resource'])
+    if connections is not None:
+        return await connections.fetch(replay_id, session, profile)
     routes = await bootstrap(profile)
     for index, (endpoint, route_id) in enumerate(routes):
         channel = MSRPCChannel(endpoint)
@@ -204,30 +344,12 @@ async def fetch_record(replay_id, session, region):
             await connect(channel, profile, route_id)
             lobby = Lobby(channel)
             await login(lobby, session, profile)
-            request = pb.ReqGameRecord(game_uuid=replay_id, client_version_string=profile.version_string)
-            record = await asyncio.wait_for(lobby.fetch_game_record(request), timeout=25)
-            if record.error.code == 151:
-                await rpc("read_record", lobby.read_game_record(request))
-                record = await asyncio.wait_for(lobby.fetch_game_record(request), timeout=25)
-            if record.error.code:
-                raise GameError("fetch_record", record.error.code)
-            if record.head.uuid != replay_id or len(record.head.accounts) != 4:
-                raise GameError("record_shape")
-            if not record.data and record.data_url:
-                record.data = await download_record(record.data_url)
-            if not record.data or len(record.data) > MAX_RECORD:
-                raise GameError("record_size")
-            try:
-                return _convert_record(record)
-            except RemoteReplayError as exc:
-                raise GameError("conversion") from exc
+            return await _read_record(lobby, replay_id, profile)
         except GameError:
             raise
         except (OSError, TimeoutError, aiohttp.ClientError):
             if index == len(routes) - 1:
                 raise GameError("gateway") from None
         finally:
-            if channel._ws is not None:
-                with suppress(Exception):
-                    await channel.close()
+            await _close_channel(channel)
     raise GameError("gateway")

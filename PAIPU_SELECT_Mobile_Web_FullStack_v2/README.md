@@ -1,5 +1,44 @@
 # PAIPU SELECT application
 
+## v3.8.0 · request-driven connection reuse and durable replay cache
+
+The existing KR/JP/EN OAuth wire fields are unchanged. Requests run on one lazy
+game event loop. An authenticated socket can serve subsequent requests for the
+same account/token; logout, token/version changes and errors close it. Idle
+sockets close after five minutes; connections older than fifteen minutes are
+replaced on demand. No periodic game RPCs, pings or keep-alive jobs are added.
+SDK refresh results are reused for five minutes from the actual refresh time.
+
+Run `sql/replay_cache.sql` as the owner on an isolated test branch first, then on
+the existing database. Fresh installations require both `sql/session_vault.sql`
+and `sql/replay_cache.sql`. The existing restricted runtime role gains CRUD only
+on the separate replay-cache table, with forced RLS. Authentication-table rights
+are unchanged. Cache keys are SHA-256 hashes and compressed replay JSON is
+Fernet-encrypted with the existing server-only account key. Bounds: 30-day TTL,
+128 entries, 8 MiB ciphertext total, 2 MiB per entry, 12 MiB decoded JSON.
+Expiration/eviction is request-driven. Cache entries are reproducible and may be
+evicted sooner when full; credential rows are never evicted.
+
+The 10/min upstream admission window is encrypted inside `usage.admission` in
+the existing vault and serialized under its advisory lock across deployments.
+A replay-stage 540 persists a 60-second global pause as well as the existing
+account hold. Cache hits do not call the game server and still work during that
+pause. DB read/admission errors fail closed rather than sending uncapped calls.
+Cache-write failure preserves a successful conversion and logs only its error
+type. In-flight jobs and the optional FIFO queue remain process-local.
+
+For bounded deployment verification only, `PAIPU_REUSE_VALIDATION_ID` plus
+`PAIPU_REUSE_VALIDATION_URLS` (exactly two official URLs separated by a newline)
+tests two admitted replay fetches using one eligible slot. It never bypasses a
+hold, stops at the first failure and durably claims the ID before I/O, preventing
+repeats on restart. Clear both settings afterwards. Separately,
+`PAIPU_REPLAY_CACHE_VALIDATION_DATABASE_URL` must name a different test branch;
+it checks the real driver's encrypted cache roundtrip, TLS, RLS and restricted
+role without reading or writing the authentication row. Clear after validation.
+
+These changes reduce repeated authentication and replay retrieval. They do not
+establish the provider's unpublished 540 quota or guarantee an account unblock.
+
 Account slots 1–20 are supported. Configure `PAIPU_SERVICE_EMAIL_10` through
 `PAIPU_SERVICE_EMAIL_20` and matching `PAIPU_SERVICE_REGION_N=jp` in Render;
 each newly configured account still requires its own initial OTP enrollment.

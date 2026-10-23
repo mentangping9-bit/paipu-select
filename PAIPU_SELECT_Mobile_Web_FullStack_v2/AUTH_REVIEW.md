@@ -1,5 +1,30 @@
 # Authentication investigation — 2026-10-19
 
+## Retrieval architecture update — 2026-10-23, v3.8.0
+
+Compared Amae Koromo scripts at d375252fefd2bb6b1cca82b409b7a1abcf155197
+(`majsoul.js`, `logGames.js`) with this service. Amae keeps a connection for a
+finite retrieval batch and persists replay data; its statistical UI mostly reads
+stored data. PAIPU previously refreshed the SDK and opened/authenticated/closed
+a socket for each cache miss, with only a 15-minute in-memory replay cache.
+The current KR/JP/EN OAuth fields are preserved; the change adopts connection
+and data reuse rather than copying legacy regional authentication fields.
+
+The public `Equim-chan/mjai-reviewer` source inspected at
+2dc5ec5c8b28517cfb45f57eb21536d9a8f67aa9 does not publish the complete current
+Mortal site's Mahjong Soul retrieval backend. Its Tenhou downloader and old
+Mahjong Soul documentation cannot prove that the current service is immune to
+540. No official quota or account-unblocking claim follows from this comparison.
+
+Local tests exercise two fetches over one real local WebSocket using actual
+protobuf RPCs and the converter, SDK freshness expiry, token-change/logout/error
+connection invalidation, idle closure, encrypted cache restoration, a shared
+10/min window across independent instances, and a persisted 540 pause. These
+provider stubs do not establish live account success. The additive cache-table
+migration was tested on a Neon branch with the restricted runtime role and
+forced RLS, then applied to production without changing the auth-row ciphertext
+length or updated_at. See deployment logs/final verification for live results.
+
 Status: actual KR account game login and retrieval of the supplied Korean replay
 succeeded on 2026-10-19. The server auth status showed authenticated=true,
 game_authenticated=true, region=kr. The first conversion response was rejected

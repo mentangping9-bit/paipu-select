@@ -28,6 +28,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from service_account import ServiceAccount, SessionVault, SlotVault, AccountPool, AccountsCooling, MAX_ACCOUNTS
 from postgres_vault import PostgresVault, VaultBusy, VaultCorrupt, VaultUnavailable
 from replay_admission import ReplayAdmission, ReplayLimited, ReplayQueue
+from game_runtime import GameRuntime
+from majsoul_client import GameConnections
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
@@ -52,6 +54,8 @@ VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
 REPLAY_QUEUE_ENABLED = os.getenv('PAIPU_REPLAY_QUEUE_ENABLED', 'true').strip().lower() not in ('0', 'false', 'off')
 replay_admission = ReplayAdmission(queue_timeout=20 if REPLAY_QUEUE_ENABLED else 0)
+game_runtime = GameRuntime()
+game_connections = GameConnections()
 
 
 class RateLimited(ValueError):
@@ -129,6 +133,9 @@ def configure_service_account(slot=1):
 service_account = configure_service_account()
 service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in range(2, MAX_ACCOUNTS+1)
                           if os.getenv(f'PAIPU_SERVICE_EMAIL_{slot}')])
+if isinstance(service_pool.vault, PostgresVault):
+    from replay_store import ReplayStore
+    replay_admission.durable = ReplayStore(service_pool.vault)
 
 
 def extract_share_url(text: str) -> str:
@@ -231,8 +238,6 @@ def fetch_from_mahjongsoul(text: str, session: Session, account=None) -> dict:
     from majsoul_client import fetch_record
     reference = parse_replay_url(extract_share_url(text))
     shared = account.owns(session)
-    if not session.operation.acquire(timeout=5 if shared else 0):
-        raise ValueError("같은 계정의 패보를 조회하고 있습니다. 완료 후 다시 시도해 주세요.")
     async def work():
         if shared and not account.owns(session):
             raise ValueError('공용 계정이 갱신되었습니다. 다시 조회해 주세요.')
@@ -244,35 +249,40 @@ def fetch_from_mahjongsoul(text: str, session: Session, account=None) -> dict:
         # Persist a rotated SDK token even when game authentication fails.
         with lock:
             session.uid, session.token, session.device_id = sdk.uid, sdk.token, sdk.device_id
-            session.fresh_token_at = 0
+            if not fresh:
+                session.fresh_token_at = time.monotonic()
         if account.owns(session):
             account.save(session)
-        payload = await fetch_record(reference.replay_id, sdk, session.region)
+        payload = await fetch_record(reference.replay_id, sdk, session.region, connections=game_connections)
         with lock:
             session.game_verified = True
         return check_tenhou(payload)
-    try:
-        with account.vault_lock() if shared else nullcontext():
-            if shared:
+    async def guarded():
+        # Acquire/reuse the thread-local DB connection on the same thread as
+        # token writes. Holding it in the HTTP thread would deadlock this loop.
+        if not session.operation.acquire(timeout=5 if shared else 0):
+            raise ValueError("같은 계정의 패보를 조회하고 있습니다. 완료 후 다시 시도해 주세요.")
+        try:
+            with account.vault_lock() if shared else nullcontext():
+                if shared:
+                    try:
+                        account.restore()
+                    except (VaultUnavailable, VaultCorrupt):
+                        account.storage_error = True
+                        raise
+                    if not account.owns(session) or not session.token:
+                        from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
+                        raise AuthenticationRequired(session.region)
                 try:
-                    account.restore()
-                except (VaultUnavailable, VaultCorrupt):
-                    account.storage_error = True
+                    return await asyncio.wait_for(work(), timeout=100)
+                except Exception as exc:
+                    if type(exc).__name__ == 'VerificationCodeRequired':
+                        account.invalidate(session)
+                        session.uid, session.token, session.game_verified = '', '', False
                     raise
-                if not account.owns(session) or not session.token:
-                    from paipu_vendor.mahjong_url_parser.models import AuthenticationRequired
-                    raise AuthenticationRequired(session.region)
-            try:
-                return asyncio.run(asyncio.wait_for(work(), timeout=100))
-            except Exception as exc:
-                if type(exc).__name__ == 'VerificationCodeRequired':
-                    # Still under both locks: don't erase a newer token saved
-                    # by another deployment after this request releases them.
-                    account.invalidate(session)
-                    session.uid, session.token, session.game_verified = '', '', False
-                raise
-    finally:
-        session.operation.release()
+        finally:
+            session.operation.release()
+    return game_runtime.run(guarded())
 
 
 def public_fetch_error(error: Exception) -> tuple[int, dict]:
@@ -508,7 +518,11 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.7.5',
+                                  'version': '3.8.0',
+                                  'game_connection_reuse': game_connections.stats(),
+                                  'sdk_refresh_reuse_seconds': 300,
+                                  'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',
+                                  'replay_limit_persistent': replay_admission.durable is not None,
                                   'operator_bulk_email_enrollment': True,
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': REPLAY_QUEUE_ENABLED,
                                   'replay_account_capacity': MAX_ACCOUNTS,
@@ -732,6 +746,16 @@ def probe_gateway():
 
 
 if __name__ == '__main__':
+    cache_validation_dsn=os.getenv('PAIPU_REPLAY_CACHE_VALIDATION_DATABASE_URL','')
+    if cache_validation_dsn:
+        from verify_replay_cache import verify as verify_cache
+        try:
+            print('Replay cache integration validation:',json.dumps(verify_cache(
+                cache_validation_dsn,os.getenv('PAIPU_DATABASE_URL',''))),flush=True)
+        except Exception as exc:
+            from postgres_vault import safe_database_error
+            print('Replay cache integration validation failed:',json.dumps(safe_database_error(exc)),flush=True)
+            raise SystemExit(1) from None
     validation_dsn = os.getenv('PAIPU_VALIDATION_DATABASE_URL', '')
     if validation_dsn:
         from verify_postgres_vault import verify
@@ -749,6 +773,9 @@ if __name__ == '__main__':
     from replay_diagnostic import diagnose_replay
     threading.Thread(target=diagnose_replay,
         args=(service_pool, replay_admission, extract_share_url, fetch_from_mahjongsoul), daemon=True).start()
+    from retrieval_validation import validate as validate_reuse
+    threading.Thread(target=validate_reuse,args=(service_pool,replay_admission,extract_share_url,
+        fetch_from_mahjongsoul,game_connections),daemon=True).start()
     port = int(os.getenv('PORT', '8765'))
     print(f'Runtime Python: {sys.version.split()[0]}', flush=True)
     for slot, account in enumerate(service_pool.accounts, 1):
