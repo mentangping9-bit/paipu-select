@@ -23,13 +23,16 @@ Pending tickets terminate with the same message instead of polling for hours.
 The notice doesn't disable cached-replay input or JSON upload. Operator status
 includes the current protected-pause state and active 540 account count.
 
-The FIFO queue is enabled in production, capped at 30 pending/running jobs and a
+The FIFO queue, when enabled, is capped at 30 pending/running jobs and a
 ten-minute maximum wait. Duplicate replay requests are coalesced. A 540 waits
 at least 60 seconds before any queued retry, with at most three 540 responses per
 job; the 17-account global pause terminates retries. Neither polling nor waiting
 calls the provider. The queue remains in memory; a restart expires old tickets.
 No artificial provider failures or additional verification emails are needed to
 test these safeguards. Local tests use synthetic encrypted account records.
+`PAIPU_REPLAY_QUEUE_ENABLED` remains the operator's activation switch. Its previous
+production value was false; changing it to true needs explicit operator approval.
+All account/global holds and the 3/min limit also apply in synchronous mode.
 
 ## v3.8.1 · request-driven connection reuse and durable replay cache
 
