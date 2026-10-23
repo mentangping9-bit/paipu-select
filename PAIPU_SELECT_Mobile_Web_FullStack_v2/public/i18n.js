@@ -2,6 +2,12 @@
 (() => {
 'use strict';
 const messages = {
+  "복사한 줄바꿈 확인": {"ko":"복사한 줄바꿈 확인","en":"Check copied line breaks","ja":"コピー後の改行を確認"},
+  "URL을 복사한 뒤 아래 칸에 붙여넣으세요. 확인 내용은 외부로 전송되지 않습니다.": {"ko":"URL을 복사한 뒤 아래 칸에 붙여넣으세요. 확인 내용은 외부로 전송되지 않습니다.","en":"Copy the URLs and paste them below. This check stays in your browser.","ja":"URLをコピーして下の欄に貼り付けてください。確認内容は外部に送信されません。"},
+  "복사 확인용 붙여넣기": {"ko":"복사 확인용 붙여넣기","en":"Paste to check copying","ja":"コピー確認用の貼り付け欄"},
+  "원문과 일치합니다. {n}개 URL의 줄바꿈이 유지됐습니다.": {"ko":"원문과 일치합니다. {n}개 URL의 줄바꿈이 유지됐습니다.","en":"Matches the original. Line breaks for all {n} URLs are preserved.","ja":"元の内容と一致しました。{n}個のURLの改行が維持されています。"},
+  "줄바꿈이 사라졌습니다. 원본 {n}줄, 붙여넣기 {m}줄입니다.": {"ko":"줄바꿈이 사라졌습니다. 원본 {n}줄, 붙여넣기 {m}줄입니다.","en":"Line breaks were lost: {n} original lines, {m} pasted lines.","ja":"改行が失われています。元は{n}行、貼り付け後は{m}行です。"},
+  "복사한 내용이 원문과 다릅니다. 원본 {n}줄, 붙여넣기 {m}줄입니다.": {"ko":"복사한 내용이 원문과 다릅니다. 원본 {n}줄, 붙여넣기 {m}줄입니다.","en":"The pasted content differs: {n} original lines, {m} pasted lines.","ja":"貼り付けた内容が元と異なります。元は{n}行、貼り付け後は{m}行です。"},
   "작혼 공유 링크를 NAGA 분석용 패보로 변환하고 원하는 국만 선택하세요. PC와 모바일에서 이용할 수 있습니다.": {"ko": "작혼 공유 링크를 NAGA 분석용 패보로 변환하고 원하는 국만 선택하세요. PC와 모바일에서 이용할 수 있습니다.", "en": "Convert a Mahjong Soul share link for NAGA analysis and select the rounds you want. Works on desktop and mobile.", "ja": "雀魂の共有リンクをNAGA解析用の牌譜に変換し、解析したい局だけを選べます。PC・スマートフォンに対応。"},
   "작혼 패보 → NAGA 분석용 변환": {"ko": "작혼 패보 → NAGA 분석용 변환", "en": "Mahjong Soul → NAGA replay converter", "ja": "雀魂牌譜 → NAGA解析用に変換"},
   "작혼 패보를 NAGA에서 분석할 수 있는 링크로 변환합니다.": {"ko": "작혼 패보를 NAGA에서 분석할 수 있는 링크로 변환합니다.", "en": "Convert Mahjong Soul replays into links you can submit to NAGA for analysis.", "ja": "雀魂の牌譜を、NAGAで解析できるリンクに変換します。"},

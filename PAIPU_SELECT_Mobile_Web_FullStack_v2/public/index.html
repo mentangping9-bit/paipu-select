@@ -73,6 +73,7 @@
       <label class="field-label" for="outputArea">국별 천봉 URL (한 줄당 한 국)</label><textarea id="outputArea" rows="5" spellcheck="false" readonly></textarea>
       <div class="result-actions"><button id="nagaBtn" class="btn primary" type="button">복사하고 NAGA 열기 ↗</button><button id="copyBtn" class="btn outline" type="button">URL만 복사</button></div>
       <p class="hint">NAGA의 커스텀 패보 제출창에 복사한 내용을 붙여넣으세요. 최종 신청은 직접 진행하며 NP가 소모될 수 있습니다.</p><p id="convertWarnings" class="warning" hidden></p>
+      <details class="copy-check"><summary>복사한 줄바꿈 확인</summary><p class="hint">URL을 복사한 뒤 아래 칸에 붙여넣으세요. 확인 내용은 외부로 전송되지 않습니다.</p><label class="field-label" for="copyCheckInput">복사 확인용 붙여넣기</label><textarea id="copyCheckInput" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea><p id="copyCheckStatus" class="hint" role="status" aria-live="polite"></p></details>
       <div class="result-actions bottom"><button id="editBtn" class="linkbtn" type="button">← 국 다시 선택</button><button id="jsonDownloadBtn" class="linkbtn" type="button">선택한 JSON 저장 ↓</button><button id="downloadBtn" class="linkbtn" type="button">URL TXT 저장 ↓</button></div>
     </section>
     <footer><p>PAIPU SELECT · 비공식 팬 제작 도구 <span id="buildVersion"></span></p><p>작혼, 천봉, NAGA와 제휴하지 않았습니다. JSON 파일은 브라우저에서만 처리됩니다. 작혼 링크 조회에는 변환 서버를 이용합니다.</p></footer>

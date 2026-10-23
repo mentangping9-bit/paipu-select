@@ -1,6 +1,6 @@
-@font-face{font-family:'Paipu Soft Round KO';src:url('./assets/nanum-square-round-ko.woff2?v=guide-1') format('woff2');font-style:normal;font-weight:400;font-display:swap}
-@font-face{font-family:'Paipu Rounded JA';src:url('./assets/rounded-ja.woff2?v=guide-1') format('woff2');font-style:normal;font-weight:500;font-display:swap}
-@font-face{font-family:'Paipu Rounded EN';src:url('./assets/rounded-en.woff2?v=guide-1') format('woff2');font-style:normal;font-weight:600;font-display:swap}
+@font-face{font-family:'Paipu Soft Round KO';src:url('./assets/nanum-square-round-ko.woff2?v=clipboard-1') format('woff2');font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:'Paipu Rounded JA';src:url('./assets/rounded-ja.woff2?v=clipboard-1') format('woff2');font-style:normal;font-weight:500;font-display:swap}
+@font-face{font-family:'Paipu Rounded EN';src:url('./assets/rounded-en.woff2?v=clipboard-1') format('woff2');font-style:normal;font-weight:600;font-display:swap}
 .header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small,.usage-guide{font-family:'Paipu Soft Round KO',sans-serif;font-weight:400}
 :lang(ja) :is(.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small,.usage-guide){font-family:'Paipu Rounded JA',sans-serif;font-weight:500}
 :lang(en) :is(.header-note,.hint,.small,.pick-heading p,#dropzone small,.auth-title small,.usage-guide){font-family:'Paipu Rounded EN',sans-serif;font-weight:600}
@@ -32,3 +32,5 @@ main{padding-top:29px}.panel{padding:0 0 30px;margin:0 0 28px;border-bottom:1px 
 .guide-steps strong{display:block;font-size:14px;font-weight:700;color:#685044}.guide-steps span{display:block;margin-top:3px;color:#817166}
 .guide-note{margin:13px 0 0;font-size:12px;color:#817166}
 @media(max-width:760px){.guide-steps{grid-template-columns:1fr;gap:8px}.guide-purpose{font-size:15px}.guide-steps strong{font-size:13px}.guide-steps span{font-size:12px;margin-top:0}.guide-note{font-size:11px}}
+
+.copy-check{margin:16px 0;padding:12px 0;border-top:1px solid var(--line);font-size:13px}.copy-check summary{cursor:pointer;color:#806b60}.copy-check[open] summary{margin-bottom:10px}.copy-check textarea{width:100%;min-height:90px}

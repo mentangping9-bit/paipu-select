@@ -507,7 +507,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.6.2',
+                                  'version': '3.6.3',
                                   'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
                                   'replay_account_rotation': 'round_robin',
                                   'replay_max_account_attempts': replay_queue.max_account_attempts,

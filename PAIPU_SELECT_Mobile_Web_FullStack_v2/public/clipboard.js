@@ -2,31 +2,18 @@
 (() => {
   'use strict';
 
-  async function copyText(text, textarea) {
-    if (typeof text !== 'string' || !text.trim()) return false;
-    const clipboard = globalThis.navigator?.clipboard;
-    // An explicit text/plain Blob avoids the URL-specific writeText path used
-    // by some browsers. Never write text/uri-list or alter the generated URLs.
-    if (clipboard?.write && typeof globalThis.ClipboardItem === 'function') {
-      try {
-        const item = new ClipboardItem({
-          'text/plain': new Blob([text], {type: 'text/plain'})
-        });
-        await clipboard.write([item]);
-        return true;
-      } catch (_) { /* Older browsers may only support writeText. */ }
-    }
-    if (clipboard?.writeText) {
-      try {
-        await clipboard.writeText(text);
-        return true;
-      } catch (_) { /* Keep the manual selection available below. */ }
-    }
+  function htmlForText(text) {
+    const escaped = text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    return '<pre>' + escaped + '</pre>';
+  }
+
+  function copySelection(text, textarea, html) {
     if (!textarea) return false;
     const document = textarea.ownerDocument;
     let suppliedText = false;
     const onCopy = event => {
       if (!event.clipboardData) return;
+      event.clipboardData.setData('text/html', html);
       event.clipboardData.setData('text/plain', text);
       event.preventDefault();
       suppliedText = true;
@@ -44,5 +31,44 @@
     }
   }
 
-  globalThis.PaipuClipboard = Object.freeze({copyText});
+  async function copyText(text, textarea) {
+    if (typeof text !== 'string' || !text.trim()) return false;
+    const html = htmlForText(text);
+    // Run the copy event while the tap is active, BEFORE async clipboard APIs.
+    // WebKit's plain-text write path can also advertise NSURL, and iOS pasting
+    // into a textarea may prefer that URL over the original multiline text.
+    // Explicit copy-event formats use a separate native registration path.
+    if (copySelection(text, textarea, html)) return true;
+    const clipboard = globalThis.navigator?.clipboard;
+    if (clipboard?.write && typeof globalThis.ClipboardItem === 'function') {
+      // HTML first preserves line boundaries in consumers preferring rich text;
+      // both representations contain exactly the same URLs, with no anchors.
+      for (const formats of [
+        {'text/html': new Blob([html], {type: 'text/html'}), 'text/plain': new Blob([text], {type: 'text/plain'})},
+        {'text/plain': new Blob([text], {type: 'text/plain'})}
+      ]) {
+        try { await clipboard.write([new ClipboardItem(formats)]); return true; }
+        catch (_) { /* Try the next supported representation. */ }
+      }
+    }
+    if (clipboard?.writeText) {
+      try { await clipboard.writeText(text); return true; }
+      catch (_) { /* Leave the output available for manual selection. */ }
+    }
+    return false;
+  }
+
+  function inspectPaste(expected, actual) {
+    const normalize = value => value.replace(/\r\n?/g, '\n').trim();
+    const original = normalize(expected), pasted = normalize(actual);
+    const expectedLines = original ? original.split('\n').length : 0;
+    const actualLines = pasted ? pasted.split('\n').length : 0;
+    let state = 'changed';
+    if (!pasted) state = 'empty';
+    else if (pasted === original) state = 'match';
+    else if (expectedLines > actualLines && pasted.replaceAll('\n', '') === original.replaceAll('\n', '')) state = 'linebreaks';
+    return {state, expectedLines, actualLines};
+  }
+
+  globalThis.PaipuClipboard = Object.freeze({copyText, inspectPaste});
 })();
