@@ -6,7 +6,7 @@ CREATE SCHEMA IF NOT EXISTS paipu_private;
 REVOKE ALL ON SCHEMA paipu_private FROM PUBLIC;
 CREATE TABLE IF NOT EXISTS paipu_private.service_sessions (
     account_key text PRIMARY KEY CHECK (account_key = 'majsoul'),
-    ciphertext text CHECK (length(ciphertext) <= 16384),
+    ciphertext text CHECK (length(ciphertext) <= 65536),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO paipu_private.service_sessions (account_key) VALUES ('majsoul')

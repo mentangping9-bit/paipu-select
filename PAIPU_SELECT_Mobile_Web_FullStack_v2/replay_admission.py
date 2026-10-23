@@ -145,16 +145,16 @@ class ReplayQueue:
     Queue state/results expire in memory. The durable SDK session is independent.
     No polling operation calls the provider. Limited jobs retry only after a
     shared cooldown, with at most three rate-limit responses. Account failures
-    can try each configured slot once, up to nine slots per replay.
+    can try each configured slot once, up to twenty slots per replay.
     """
     def __init__(self, admission, error_mapper, *, spacing=6, cooldown=60,
                  max_pending=100, ttl=600, result_bytes=8*1024*1024, max_wait=1800, metadata=None,
-                 max_account_attempts=9):
+                 max_account_attempts=20):
         self.admission, self.error_mapper = admission, error_mapper
         self.spacing, self.cooldown = spacing, cooldown
         self.max_pending, self.ttl, self.result_bytes = max_pending, ttl, result_bytes
         self.max_wait = max_wait
-        self.max_account_attempts = max(1, min(9, max_account_attempts))
+        self.max_account_attempts = max(1, min(20, max_account_attempts))
         self.metadata = metadata or (lambda:{})
         self.provider_pause_until = 0
         self.condition = threading.Condition(admission.lock)

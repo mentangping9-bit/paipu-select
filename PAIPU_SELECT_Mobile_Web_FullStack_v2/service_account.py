@@ -14,9 +14,10 @@ import time
 import account_usage
 from contextlib import contextmanager, nullcontext
 
-from postgres_vault import VaultUnavailable, VaultCorrupt, VaultBusy
+from postgres_vault import VaultUnavailable, VaultCorrupt, VaultBusy, MAX_CIPHERTEXT_BYTES
 
 _UNSET = object()
+MAX_ACCOUNTS = 20
 
 class SessionVault:
     storage = 'encrypted_file'
@@ -32,7 +33,7 @@ class SessionVault:
             return None
         try:
             raw = self.path.read_bytes()
-            if len(raw) > 16384:
+            if len(raw) > MAX_CIPHERTEXT_BYTES:
                 raise ValueError()
             value = json.loads(self.cipher.decrypt(raw))
             if not isinstance(value, dict) or value.get('version') != 1:
@@ -43,6 +44,8 @@ class SessionVault:
 
     def save(self, value):
         raw = self.cipher.encrypt(json.dumps(value, ensure_ascii=False).encode())
+        if len(raw) > MAX_CIPHERTEXT_BYTES:
+            raise VaultUnavailable('인증 정보가 저장소 크기 한도를 초과했습니다.')
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix='.session-', dir=self.path.parent)
         try:
@@ -205,7 +208,7 @@ class ServiceAccount:
 
 
 class SlotVault:
-    """Keep up to nine encrypted profiles in the existing restricted DB row.
+    """Keep up to twenty encrypted profiles in the existing restricted DB row.
 
     Primary fields retain their legacy representation. Every merge occurs under
     the same advisory lock; replacing primary tokens preserves secondary slots.
@@ -223,7 +226,7 @@ class SlotVault:
         if self.slot == '1':
             return saved if 'email' in saved else None
         slots = saved.get('accounts', {})
-        if not isinstance(slots, dict) or any(key not in {str(i) for i in range(2, 10)} for key in slots):
+        if not isinstance(slots, dict) or any(key not in {str(i) for i in range(2, MAX_ACCOUNTS+1)} for key in slots):
             raise VaultCorrupt('저장된 조회 계정 슬롯이 올바르지 않습니다.')
         value = slots.get(self.slot)
         if value is not None and not isinstance(value, dict):
@@ -316,9 +319,9 @@ class AccountPool:
             return
         if (not isinstance(state, dict) or state.get('version') != 1 or
             any(isinstance(state.get(k), bool) or not isinstance(state.get(k), int)
-                or not 1 <= state[k] <= 9 for k in ('next_slot',)) or
+                or not 1 <= state[k] <= MAX_ACCOUNTS for k in ('next_slot',)) or
             any(state.get(k) is not None and (isinstance(state[k], bool)
-                or not isinstance(state[k], int) or not 1 <= state[k] <= 9)
+                or not isinstance(state[k], int) or not 1 <= state[k] <= MAX_ACCOUNTS)
                 for k in ('last_used_slot','last_success_slot'))):
             raise VaultCorrupt('계정 순환 정보 형식이 올바르지 않습니다.')
         self.cursor = (state['next_slot']-1)%len(self.accounts)
@@ -381,13 +384,20 @@ class AccountPool:
         tried = set()
         return lambda: self.fetch(text, fetch, tried=tried)
 
-    def fetch(self, text, fetch, *, tried=None):
+    def fetch(self, text, fetch, *, tried=None, diagnostic_slot=None):
         tried = tried if tried is not None else set()
         with self.lock, self.vault.locked() if self.vault else nullcontext():
             saved = self.vault.load() if self.vault else None
             if self.vault:
                 self._restore_rotation(saved)
             eligible = self.eligible(tried)
+            if diagnostic_slot is not None:
+                # Internal one-shot diagnostic only. HTTP callers cannot set
+                # this argument. Keep the persisted hold and normal outcome
+                # handling; never clear all account cooldowns to run a probe.
+                account = self.registration_account(diagnostic_slot)
+                eligible = [(diagnostic_slot-1, account)] if (
+                    account.status()['shared_ready'] and not account.unavailable_reason) else []
             if not eligible:
                 ready = [a for i, a in enumerate(self.accounts) if i not in tried
                          and a.status()['shared_ready'] and not a.unavailable_reason]

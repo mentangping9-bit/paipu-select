@@ -54,6 +54,9 @@ def safe_database_error(error):
             'reason': reason}
 
 
+MAX_CIPHERTEXT_BYTES = 65536
+
+
 class PostgresVault:
     storage = 'encrypted_postgres'
     # One dedicated account per deployment/database. Not a secret.
@@ -125,7 +128,7 @@ class PostgresVault:
             if row[0] is None:
                 return None
             try:
-                if not isinstance(row[0], str) or len(row[0]) > 16384:
+                if not isinstance(row[0], str) or len(row[0]) > MAX_CIPHERTEXT_BYTES:
                     raise ValueError()
                 saved = json.loads(self.cipher.decrypt(row[0].encode('ascii')))
                 if not isinstance(saved, dict) or saved.get('version') != 1:
@@ -136,6 +139,8 @@ class PostgresVault:
 
     def save(self, value):
         raw = self.cipher.encrypt(json.dumps(value, ensure_ascii=False).encode()).decode('ascii')
+        if len(raw) > MAX_CIPHERTEXT_BYTES:
+            raise VaultUnavailable('인증 정보가 저장소 크기 한도를 초과했습니다.')
         with self.locked():
             try:
                 result = self.local.connection.execute(

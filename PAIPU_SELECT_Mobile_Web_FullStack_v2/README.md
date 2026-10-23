@@ -1,5 +1,24 @@
 # PAIPU SELECT application
 
+Account slots 1–20 are supported. Configure `PAIPU_SERVICE_EMAIL_10` through
+`PAIPU_SERVICE_EMAIL_20` and matching `PAIPU_SERVICE_REGION_N=jp` in Render;
+each newly configured account still requires its own initial OTP enrollment.
+Existing databases must run `sql/expand_session_vault.sql` as the owner before
+enrolling additional slots. This only raises the encrypted row limit to 64 KiB.
+
+`PAIPU_REPLAY_QUEUE_ENABLED=false` temporarily switches shared conversions to
+synchronous requests. Serialization, cache, visitor limits and 10/min upstream
+admission remain active; busy/held accounts return a response without a ticket
+or background retry. Restore `true` to enable the FIFO queue.
+
+An explicitly authorized one-shot replay diagnostic can be configured with
+`PAIPU_REPLAY_DIAGNOSTIC_ID` (unique alphanumeric revision, at most 64 chars) and
+`PAIPU_REPLAY_DIAGNOSTIC_URL` (official shared replay URL). It uses one authenticated
+account even during its local cooldown, preserves all other holds, records the
+normal outcome, and logs only stage/code or success/round count. A durable claim
+prevents repeated calls on restart or overlapping deploys. It is off by default;
+clear both settings after the diagnostic. Public requests cannot invoke it.
+
 This is the single application directory used by the existing Render service.
 See ../README.md for startup and AUTH_REVIEW.md for verification status.
 

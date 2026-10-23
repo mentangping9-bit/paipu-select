@@ -25,7 +25,7 @@ import threading
 import time
 from contextlib import nullcontext
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
-from service_account import ServiceAccount, SessionVault, SlotVault, AccountPool, AccountsCooling
+from service_account import ServiceAccount, SessionVault, SlotVault, AccountPool, AccountsCooling, MAX_ACCOUNTS
 from postgres_vault import PostgresVault, VaultBusy, VaultCorrupt, VaultUnavailable
 from replay_admission import ReplayAdmission, ReplayLimited, ReplayQueue
 
@@ -50,7 +50,8 @@ OPERATOR_KEY = os.getenv('PAIPU_OPERATOR_KEY', '')
 STATIC_PATHS = {'/styles.css', '/app.js', '/converter.js', '/link-utils.js', '/i18n.js', '/backend.js', '/clipboard.js', '/assets/wordmark.svg', '/assets/mascot.webp', '/assets/favicon.svg', '/assets/Nunito-OFL.txt', '/assets/NanumSquareRound-LICENSE.txt', '/assets/ZenMaruGothic-OFL.txt', '/assets/nanum-square-round-ko.woff2', '/assets/rounded-ja.woff2', '/assets/rounded-en.woff2'}
 VISITOR_COOKIE = 'ps_visitor'
 VISITOR_SIGNING_KEY = secrets.token_bytes(32)
-replay_admission = ReplayAdmission()
+REPLAY_QUEUE_ENABLED = os.getenv('PAIPU_REPLAY_QUEUE_ENABLED', 'true').strip().lower() not in ('0', 'false', 'off')
+replay_admission = ReplayAdmission(queue_timeout=20 if REPLAY_QUEUE_ENABLED else 0)
 
 
 class RateLimited(ValueError):
@@ -126,7 +127,7 @@ def configure_service_account(slot=1):
 
 
 service_account = configure_service_account()
-service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in range(2, 10)
+service_pool = AccountPool([service_account] + [configure_service_account(slot) for slot in range(2, MAX_ACCOUNTS+1)
                           if os.getenv(f'PAIPU_SERVICE_EMAIL_{slot}')])
 
 
@@ -507,8 +508,9 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.7.3',
-                                  'replay_limit_per_minute': 10, 'replay_queue_enabled': True,
+                                  'version': '3.7.4',
+                                  'replay_limit_per_minute': 10, 'replay_queue_enabled': REPLAY_QUEUE_ENABLED,
+                                  'replay_account_capacity': MAX_ACCOUNTS,
                                   'replay_account_rotation': 'round_robin',
                                   'replay_max_account_attempts': replay_queue.max_account_attempts,
                                   'replay_queue_capacity': replay_queue.max_pending,
@@ -562,7 +564,7 @@ class Handler(SimpleHTTPRequestHandler):
                     'error': '공용 계정의 인증 설정에는 운영자 인증키가 필요합니다.'})
             if action == '/api/auth/accounts':
                 return self.json_reply(200, {**service_pool.operator_status(),
-                    'limit_per_minute':10, 'queue_enabled':True})
+                    'limit_per_minute':10, 'queue_enabled':REPLAY_QUEUE_ENABLED})
             if action == '/api/auth/send-code':
                 use_service = body.get('service_account') is True
                 if use_service and not service_account.configured:
@@ -614,8 +616,15 @@ class Handler(SimpleHTTPRequestHandler):
                 if service_pool.owner(s):
                     from paipu_vendor.mahjong_url_parser.urls import parse_replay_url
                     key = ('international', parse_replay_url(url).replay_id)
-                    status, result, cache = replay_queue.submit(key, self._visitor(),
-                                                        service_pool.queued_fetch(url, fetch_from_mahjongsoul))
+                    if REPLAY_QUEUE_ENABLED:
+                        status, result, cache = replay_queue.submit(key, self._visitor(),
+                                                            service_pool.queued_fetch(url, fetch_from_mahjongsoul))
+                    else:
+                        # No tickets, background retries or waiting for a free
+                        # worker. Retain serialization, cache and 10/min cap.
+                        result, cache = replay_admission.run(key, self._visitor(),
+                            lambda:service_pool.fetch(url, fetch_from_mahjongsoul))
+                        status = 200
                     return self.json_reply(status, result, headers={'X-Paipu-Cache':cache})
                 result = fetch_from_mahjongsoul(url, s)
                 return self.json_reply(200, result)
@@ -656,6 +665,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json_reply(exc.status, {'code':exc.code, 'retry_after':exc.retry_after,
                 'error':'요청이 많습니다. 안내된 시간 후 다시 시도해 주세요.'},
                 headers={'Retry-After':exc.retry_after})
+        except AccountsCooling as exc:
+            status, data = public_fetch_error(exc)
+            return self.json_reply(status, data, headers={'Retry-After':exc.retry_after})
         except RateLimited:
             return self.json_reply(429, {'code': 'RATE_LIMITED', 'error': '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'})
         except ValueError as exc:
@@ -727,6 +739,9 @@ if __name__ == '__main__':
     threading.Thread(target=probe_gateway, daemon=True).start()
     from login_diagnostic import diagnose_pool
     threading.Thread(target=diagnose_pool, args=(service_pool,), daemon=True).start()
+    from replay_diagnostic import diagnose_replay
+    threading.Thread(target=diagnose_replay,
+        args=(service_pool, replay_admission, extract_share_url, fetch_from_mahjongsoul), daemon=True).start()
     port = int(os.getenv('PORT', '8765'))
     print(f'Runtime Python: {sys.version.split()[0]}', flush=True)
     for slot, account in enumerate(service_pool.accounts, 1):
