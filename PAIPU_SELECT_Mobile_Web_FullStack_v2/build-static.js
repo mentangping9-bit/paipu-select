@@ -3,7 +3,7 @@ const root=__dirname,out=path.join(root,'static-dist');
 fs.rmSync(out,{recursive:true,force:true});fs.mkdirSync(out,{recursive:true});
 const backend='https://paipu-select.onrender.com';
 const build=(process.env.RENDER_GIT_COMMIT||'local').slice(0,12);
-for(const name of ['index.html','styles.css','i18n.js','converter.js','link-utils.js','backend.js','app.js']){
+for(const name of ['index.html','styles.css','i18n.js','converter.js','link-utils.js','backend.js','clipboard.js','app.js']){
  let text=fs.readFileSync(path.join(root,'public',name),'utf8');
  if(name==='index.html'){
   text=text.replace('<head>','<head>\n<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\'; style-src \'self\'; connect-src \'self\' '+backend+'; img-src \'self\'; font-src \'self\'; base-uri \'none\'; object-src \'none\'; form-action \'self\'">');

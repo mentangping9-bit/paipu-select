@@ -1,0 +1,68 @@
+// Real generated URLs, clipboard representations and async navigation ordering.
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const code=fs.readFileSync('public/clipboard.js','utf8');
+function load(navigator={},ClipboardItem){
+ const context={navigator,Blob,ClipboardItem};context.globalThis=context;
+ vm.createContext(context);vm.runInContext(code,context);
+ return context.PaipuClipboard;
+}
+const parserScope={};parserScope.globalThis=parserScope;
+vm.createContext(parserScope);vm.runInContext(fs.readFileSync('public/converter.js','utf8'),parserScope);
+const parser=parserScope.NagaParser;
+const rounds=parser.parseText(fs.readFileSync('tests/fixture.json','utf8'));
+const text=parser.urlsForSelection(rounds,new Set(rounds.map(r=>r.id)),false);
+class Item{constructor(data){this.data=data;}}
+function legacy(success=true){
+ let handler,removed=false,prevented=false,selected=false,value;
+ const document={
+  addEventListener(type,callback,capture){assert.equal(type,'copy');assert.equal(capture,true);handler=callback;},
+  removeEventListener(type,callback,capture){assert.equal(callback,handler);assert.equal(capture,true);removed=true;},
+  execCommand(command){
+   assert.equal(command,'copy');assert.equal(selected,true);
+   if(success)handler({clipboardData:{setData(type,data){assert.equal(type,'text/plain');value=data;}},preventDefault(){prevented=true;}});
+   return success;
+  }
+ };
+ const textarea={ownerDocument:document,focus(){},select(){selected=true;},setSelectionRange(a,b){assert.equal(a,0);assert.equal(b,text.length);}};
+ return {textarea,check(){assert.equal(removed,true);if(success){assert.equal(value,text);assert.equal(prevented,true);}}};
+}
+(async()=>{
+ let calls=0;
+ const modern=load({clipboard:{async write(items){
+  calls++;assert.equal(items.length,1);assert.deepEqual(Object.keys(items[0].data),['text/plain']);
+  const blob=items[0].data['text/plain'];assert.equal(blob.type,'text/plain');assert.equal(await blob.text(),text);
+ },async writeText(){assert.fail('must prefer explicit plain-text Blob');}}},Item);
+ assert.equal(await modern.copyText(text),true);assert.equal(calls,1);
+ assert.equal(text.split('\n').length,rounds.length);
+ for(const line of text.split('\n'))assert.equal(parser.parseUrlJSON(line).log.length,1);
+
+ let fallbackCalls=0;
+ const unsupported=load({clipboard:{async write(){throw Error('unsupported representation');},async writeText(value){assert.equal(value,text);fallbackCalls++;}}},Item);
+ assert.equal(await unsupported.copyText(text),true);assert.equal(fallbackCalls,1);
+ const oldApi=load({clipboard:{async writeText(value){assert.equal(value,text);fallbackCalls++;}}});
+ assert.equal(await oldApi.copyText(text),true);
+ const selection=legacy();
+ const denied=load({clipboard:{async write(){throw Error('denied');},async writeText(){throw Error('denied');}}},Item);
+ assert.equal(await denied.copyText(text,selection.textarea),true);selection.check();
+ const failed=legacy(false);
+ assert.equal(await load().copyText(text,failed.textarea),false);failed.check();
+ assert.equal(await modern.copyText(''),false);
+
+ const app=fs.readFileSync('public/app.js','utf8');
+ const begin=app.indexOf('async function openNaga()');
+ assert.ok(begin>=0,'NAGA handoff must await copying');
+ const fn=app.slice(begin,app.indexOf('\nfunction saveOutput()',begin));
+ for(const succeeds of [false,true]){
+  const visits=[];let settle;
+  const pending=new Promise(resolve=>{settle=resolve;});
+  const scope={copyOutput:()=>pending,location:{assign:url=>visits.push(url)}};
+  vm.createContext(scope);vm.runInContext(fn,scope);
+  const handoff=scope.openNaga();
+  assert.equal(visits.length,0,'must retain focus while clipboard write is pending');
+  settle(succeeds);assert.equal(await handoff,succeeds);
+  assert.deepEqual(visits,succeeds?['https://naga.dmv.nico/naga_report/order_form/?show_tab=1']:[]);
+ }
+ const html=fs.readFileSync('public/index.html','utf8');
+ assert.ok(html.indexOf('./clipboard.js')<html.indexOf('./app.js'));
+ console.log(`PASS: ${rounds.length} generated URLs retain newlines and percent encoding; Blob, text and explicit-copy fallbacks; no navigation before copy or after failure`);
+})().catch(error=>{console.error(error);process.exitCode=1;});

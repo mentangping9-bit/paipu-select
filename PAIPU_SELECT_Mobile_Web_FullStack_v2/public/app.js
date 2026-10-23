@@ -115,25 +115,23 @@ async function loadFromUrl(){
  }finally{busy=false;queueSnapshot=null;$('queuePanel').hidden=true;updateConvertButton();}
 }
 async function copyOutput(){
- const text=$('outputArea').value;
- try{await navigator.clipboard.writeText(text);toast('NAGA용 URL을 복사했어요.');return true;}
- catch{
-  const el=$('outputArea');el.focus();el.select();el.setSelectionRange(0,text.length);
-  try{if(document.execCommand('copy')){toast('URL을 복사했어요.');return true;}}catch{}
-  toast('자동 복사가 허용되지 않았습니다. 선택된 URL을 직접 복사해 주세요.');return false;
- }
+ const el=$('outputArea');
+ const copied=await globalThis.PaipuClipboard.copyText(el.value,el);
+ toast(copied?'NAGA용 URL을 복사했어요.':'자동 복사가 허용되지 않았습니다. 선택된 URL을 직접 복사해 주세요.');
+ return copied;
 }
 function saveJSON(){
  const selected=parser.jsonForSelection(rounds,chosen,$('anonymousCheck').checked);
  const blob=new Blob([JSON.stringify(selected.length===1?selected[0]:selected,null,2)],{type:'application/json;charset=utf-8'});
  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='PAIPU_selected_rounds.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function openNaga(){
- // Open during the tap event, before awaiting clipboard permission on iOS.
+async function openNaga(){
+ // Keep focus until copying finishes. Same-tab navigation also works after
+ // asynchronous permission checks on browsers which block delayed popups.
  // Never access NAGA cookies or call its analysis/charge API.
- const copied=copyOutput(); // Request clipboard access while this tab still has focus.
- window.open('https://naga.dmv.nico/naga_report/order_form/?show_tab=1','_blank','noopener,noreferrer');
- return copied;
+ if(!await copyOutput())return false;
+ location.assign('https://naga.dmv.nico/naga_report/order_form/?show_tab=1');
+ return true;
 }
 function saveOutput(){const url=URL.createObjectURL(new Blob([$('outputArea').value],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='NAGA_selected_rounds.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 window.addEventListener('pagehide',()=>{$('operatorKeyInput').value='';});
