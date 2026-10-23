@@ -7,6 +7,12 @@
     return '<pre>' + escaped + '</pre>';
   }
 
+  function isIOS() {
+    const navigator = globalThis.navigator || {};
+    return /iP(?:hone|ad|od)/.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
   function copySelection(text, textarea, html) {
     if (!textarea) return false;
     const document = textarea.ownerDocument;
@@ -35,8 +41,7 @@
     if (typeof text !== 'string' || !text.trim()) return false;
     const html = htmlForText(text);
     const navigator = globalThis.navigator || {};
-    const ios = /iP(?:hone|ad|od)/.test(navigator.userAgent || '') ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const ios = isIOS();
     // On iOS, run the copy event while the tap is active, BEFORE async APIs.
     // WebKit's plain-text write path can also advertise NSURL, and iOS pasting
     // into a textarea may prefer that URL over the original multiline text.
@@ -73,5 +78,5 @@
     return {state, expectedLines, actualLines};
   }
 
-  globalThis.PaipuClipboard = Object.freeze({copyText, inspectPaste});
+  globalThis.PaipuClipboard = Object.freeze({copyText, inspectPaste, isIOS});
 })();

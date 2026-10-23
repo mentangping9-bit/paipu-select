@@ -61,7 +61,7 @@ function renderRounds(){
  const n=chosen.size;$('selectedCount').textContent=t('{n}국 선택',{n});$('summaryCount').textContent=String(n);$('costCount').textContent=String(n);$('generateBtn').disabled=n===0;
 }
 function setChosen(predicate){$('resultPanel').hidden=true;chosen=new Set(rounds.filter(predicate).map(v=>v.id));renderRounds();}
-function buildOutput(){if(chosen.size===0)return;$('copyCheckInput').value='';$('copyCheckStatus').textContent='';let output=parser.urlsForSelection(rounds,chosen,$('anonymousCheck').checked);$('outputArea').value=output;$('roundPanel').hidden=false;$('resultPanel').hidden=false;$('resultSummary').textContent=t('✓ 선택한 {n}개 국의 URL을 만들었습니다.',{n:chosen.size});const selected=rounds.filter(v=>chosen.has(v.id));const incomplete=selected.filter(v=>v.incompleteWin).length;const recovered=selected.filter(v=>v.recoveredWin&&!v.incompleteWin).length;const notes=[];if(recovered)notes.push(t('{n}개 국의 타점을 원본 점수 증감에서 복원했습니다. 원본에 없는 부수·판수·역은 추가하지 않았습니다.',{n:recovered}));if(incomplete)notes.push(t("{n}개 국은 원본의 점수 정보가 부족하거나 특수 정산을 확정할 수 없어 종료 기록을 '不明'으로 표기했습니다.",{n:incomplete}));$('convertWarnings').hidden=!notes.length;$('convertWarnings').textContent=notes.join(' ');$('resultPanel').scrollIntoView({behavior:'smooth',block:'start'});}
+function buildOutput(){if(chosen.size===0)return;$('copyCheckInput').value='';$('copyCheckStatus').textContent='';let output=parser.urlsForSelection(rounds,chosen,$('anonymousCheck').checked);$('outputArea').value=output;updateTextView(output);$('roundPanel').hidden=false;$('resultPanel').hidden=false;$('resultSummary').textContent=t('✓ 선택한 {n}개 국의 URL을 만들었습니다.',{n:chosen.size});const selected=rounds.filter(v=>chosen.has(v.id));const incomplete=selected.filter(v=>v.incompleteWin).length;const recovered=selected.filter(v=>v.recoveredWin&&!v.incompleteWin).length;const notes=[];if(recovered)notes.push(t('{n}개 국의 타점을 원본 점수 증감에서 복원했습니다. 원본에 없는 부수·판수·역은 추가하지 않았습니다.',{n:recovered}));if(incomplete)notes.push(t("{n}개 국은 원본의 점수 정보가 부족하거나 특수 정산을 확정할 수 없어 종료 기록을 '不明'으로 표기했습니다.",{n:incomplete}));$('convertWarnings').hidden=!notes.length;$('convertWarnings').textContent=notes.join(' ');$('resultPanel').scrollIntoView({behavior:'smooth',block:'start'});}
 async function readFile(f){clearError();if(!f)return;if(f.size>parser.MAX_BYTES){alertError(t('파일 크기는 10MB 이하여야 합니다.'));return;}try{const txt=await f.text();importData(txt,f.name);}catch(e){alertError(t('파일을 읽는 중 오류: ')+i18n.error(e.message));}}
 function normalizedUrl(text) {
   return globalThis.MajsoulShare.extract(text);
@@ -127,6 +127,13 @@ function checkCopiedText(){
  $('copyCheckStatus').textContent=check.state==='empty'?'':t(keys[check.state],{n:check.expectedLines,m:check.actualLines});
 }
 $('copyCheckInput').addEventListener('input',checkCopiedText);
+$('iosCopyHelp').hidden=!globalThis.PaipuClipboard.isIOS();
+let textViewUrl=null;
+function updateTextView(text){
+ if(textViewUrl)URL.revokeObjectURL(textViewUrl);
+ textViewUrl=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));
+ $('textViewLink').href=textViewUrl;
+}
 function saveJSON(){
  const selected=parser.jsonForSelection(rounds,chosen,$('anonymousCheck').checked);
  const blob=new Blob([JSON.stringify(selected.length===1?selected[0]:selected,null,2)],{type:'application/json;charset=utf-8'});

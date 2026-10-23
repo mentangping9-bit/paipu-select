@@ -2,6 +2,10 @@
 (() => {
 'use strict';
 const messages = {
+  "아이폰에서 한 줄로 붙여넣어지나요?": {"ko":"아이폰에서 한 줄로 붙여넣어지나요?","en":"Pasting as one line on iPhone?","ja":"iPhoneで1行にまとまってしまいますか？"},
+  "TXT 화면에서 전체 선택·복사한 뒤, 아래 링크로 NAGA를 열어 붙여넣어 주세요. 필요한 경우 URL TXT 저장도 사용할 수 있습니다.": {"ko":"TXT 화면에서 전체 선택·복사한 뒤, 아래 링크로 NAGA를 열어 붙여넣어 주세요. 필요한 경우 URL TXT 저장도 사용할 수 있습니다.","en":"Select all and copy in the TXT view, then use the link below to open NAGA and paste. You can also save the URL TXT file if needed.","ja":"TXT表示で全選択・コピーした後、下のリンクでNAGAを開いて貼り付けてください。必要に応じて「URL TXTを保存」も利用できます。"},
+  "복사 없이 NAGA 열기 ↗": {"ko":"복사 없이 NAGA 열기 ↗","en":"Open NAGA without copying ↗","ja":"コピーせずNAGAを開く ↗"},
+  "TXT 화면 열기 ↗": {"ko":"TXT 화면 열기 ↗","en":"Open TXT view ↗","ja":"TXT表示を開く ↗"},
   "복사한 줄바꿈 확인": {"ko":"복사한 줄바꿈 확인","en":"Check copied line breaks","ja":"コピー後の改行を確認"},
   "URL을 복사한 뒤 아래 칸에 붙여넣으세요. 확인 내용은 외부로 전송되지 않습니다.": {"ko":"URL을 복사한 뒤 아래 칸에 붙여넣으세요. 확인 내용은 외부로 전송되지 않습니다.","en":"Copy the URLs and paste them below. This check stays in your browser.","ja":"URLをコピーして下の欄に貼り付けてください。確認内容は外部に送信されません。"},
   "복사 확인용 붙여넣기": {"ko":"복사 확인용 붙여넣기","en":"Paste to check copying","ja":"コピー確認用の貼り付け欄"},
