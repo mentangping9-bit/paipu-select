@@ -2,6 +2,7 @@
 (() => {
 'use strict';
 const messages = {
+  "Android · PC 사용자는 이 버튼을 눌러 주세요": {"ko": "Android · PC 사용자는 이 버튼을 눌러 주세요", "en": "Android / PC users: use this button", "ja": "Android・PCの方はこちらのボタンをご利用ください"},
   "iPhone · Safari 사용 안내": {"ko": "iPhone · Safari 사용 안내", "en": "iPhone · Safari instructions", "ja": "iPhone・Safariをご利用の方へ"},
   "아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.": {"ko": "아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.", "en": "Press and hold the URL box below, choose Select All → Copy, then open NAGA without copying and paste there.", "ja": "下のURL欄を長押しして「すべて選択」→「コピー」を選んでください。その後「コピーせずNAGAを開く」を押し、貼り付けてください。"},
   "① 국별 천봉 URL · 길게 눌러 전체 복사": {"ko": "① 국별 천봉 URL · 길게 눌러 전체 복사", "en": "① Round URLs · press and hold to copy all", "ja": "① 局別の天鳳URL・長押ししてすべてコピー"},

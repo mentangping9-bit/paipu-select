@@ -72,9 +72,10 @@
       <div class="success-line" id="resultSummary"></div>
       <div id="iosCopyHelp" class="manual-copy-help"><strong>iPhone · Safari 사용 안내</strong><p>아래 URL 칸을 길게 눌러 ‘전체 선택’ → ‘복사’해 주세요. 그다음 ‘복사 없이 NAGA 열기’를 눌러 붙여넣으세요.</p></div>
       <label class="field-label" for="outputArea">① 국별 천봉 URL · 길게 눌러 전체 복사</label><textarea id="outputArea" rows="6" wrap="off" spellcheck="false" readonly aria-describedby="iosCopyHelp"></textarea>
+      <div id="automaticCopyActions"><button id="nagaBtn" class="btn primary manual-naga" type="button"><span>복사하고 NAGA 열기 ↗</span><small>Android · PC 사용자는 이 버튼을 눌러 주세요</small></button></div>
       <a id="manualNagaLink" class="btn primary manual-naga" href="https://naga.dmv.nico/naga_report/order_form/?show_tab=1" target="_blank" rel="noopener noreferrer"><span>② 복사 없이 NAGA 열기 ↗</span><small>iPhone 사용자는 이 버튼을 눌러 주세요</small></a>
       <p class="hint manual-naga-note">이 버튼은 NAGA만 엽니다. 위 URL을 먼저 직접 복사한 뒤, NAGA 입력창에 붙여넣어 주세요.</p>
-      <div id="automaticCopyActions" class="result-actions"><button id="nagaBtn" class="btn outline" type="button">복사하고 NAGA 열기 ↗</button><button id="copyBtn" class="btn outline" type="button">URL만 복사</button></div>
+      <div id="automaticCopyExtras" class="result-actions"><button id="copyBtn" class="btn outline" type="button">URL만 복사</button></div>
       <details class="copy-check"><summary>TXT 보기·저장</summary><div class="result-actions"><a id="textViewLink" class="btn outline" target="_blank" rel="noopener noreferrer">TXT 화면 열기 ↗</a></div><p class="hint">직접 복사가 어려울 때만 TXT 화면을 이용해 주세요.</p></details>
       <p class="hint">NAGA의 커스텀 패보 제출창에 복사한 내용을 붙여넣으세요. 최종 신청은 직접 진행하며 NP가 소모될 수 있습니다.</p><p id="convertWarnings" class="warning" hidden></p>
       <details class="copy-check"><summary>복사한 줄바꿈 확인</summary><p class="hint">URL을 복사한 뒤 아래 칸에 붙여넣으세요. 확인 내용은 외부로 전송되지 않습니다.</p><label class="field-label" for="copyCheckInput">복사 확인용 붙여넣기</label><textarea id="copyCheckInput" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea><p id="copyCheckStatus" class="hint" role="status" aria-live="polite"></p></details>

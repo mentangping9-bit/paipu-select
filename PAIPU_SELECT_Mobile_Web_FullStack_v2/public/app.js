@@ -129,6 +129,7 @@ function checkCopiedText(){
 $('copyCheckInput').addEventListener('input',checkCopiedText);
 // iPhone users copy the visible text themselves; never overwrite that clipboard.
 $('automaticCopyActions').hidden=globalThis.PaipuClipboard.isIOS();
+$('automaticCopyExtras').hidden=globalThis.PaipuClipboard.isIOS();
 let textViewUrl=null;
 function updateTextView(text){
  if(textViewUrl)URL.revokeObjectURL(textViewUrl);
