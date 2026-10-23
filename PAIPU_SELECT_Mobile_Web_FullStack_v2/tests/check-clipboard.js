@@ -42,8 +42,10 @@ function legacy(success=true){
  const oldApi=load({clipboard:{async writeText(value){assert.equal(value,text);fallbackCalls++;}}});
  assert.equal(await oldApi.copyText(text),true);
  const selection=legacy();
- const selectionFirst=load({clipboard:{async write(){assert.fail('copy event must precede async APIs');},async writeText(){assert.fail('copy event must precede async APIs');}}},Item);
+ const selectionFirst=load({userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)',clipboard:{async write(){assert.fail('iOS copy event must precede async APIs');},async writeText(){assert.fail('iOS copy event must precede async APIs');}}},Item);
  assert.equal(await selectionFirst.copyText(text,selection.textarea),true);selection.check();
+ const desktopIpad=legacy();
+ assert.equal(await load({platform:'MacIntel',maxTouchPoints:5}).copyText(text,desktopIpad.textarea),true);desktopIpad.check();
  const fallbackSelection=legacy();
  const denied=load({clipboard:{async write(){throw Error('denied');},async writeText(){throw Error('denied');}}},Item);
  assert.equal(await denied.copyText(text,fallbackSelection.textarea),true);fallbackSelection.check();

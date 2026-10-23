@@ -34,12 +34,15 @@
   async function copyText(text, textarea) {
     if (typeof text !== 'string' || !text.trim()) return false;
     const html = htmlForText(text);
-    // Run the copy event while the tap is active, BEFORE async clipboard APIs.
+    const navigator = globalThis.navigator || {};
+    const ios = /iP(?:hone|ad|od)/.test(navigator.userAgent || '') ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // On iOS, run the copy event while the tap is active, BEFORE async APIs.
     // WebKit's plain-text write path can also advertise NSURL, and iOS pasting
     // into a textarea may prefer that URL over the original multiline text.
     // Explicit copy-event formats use a separate native registration path.
-    if (copySelection(text, textarea, html)) return true;
-    const clipboard = globalThis.navigator?.clipboard;
+    if (ios && copySelection(text, textarea, html)) return true;
+    const clipboard = navigator.clipboard;
     if (clipboard?.write && typeof globalThis.ClipboardItem === 'function') {
       // HTML first preserves line boundaries in consumers preferring rich text;
       // both representations contain exactly the same URLs, with no anchors.
@@ -55,7 +58,7 @@
       try { await clipboard.writeText(text); return true; }
       catch (_) { /* Leave the output available for manual selection. */ }
     }
-    return false;
+    return ios ? false : copySelection(text, textarea, html);
   }
 
   function inspectPaste(expected, actual) {
