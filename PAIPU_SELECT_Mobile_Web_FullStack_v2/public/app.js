@@ -96,8 +96,8 @@ async function loadFromUrl(){
  try{value=normalizedUrl($('paipuInput').value);}catch(e){alertError(i18n.error(e.message));return;}
  busy=true;updateConvertButton();
  try{
-  await backend.ready();
-  const response=await fetch('/api/convert',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:AbortSignal.timeout(30000)});
+  const health=await backend.ready();
+  const response=await fetch('/api/convert',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:value}),signal:AbortSignal.timeout(health.replay_queue_enabled===false?110000:30000)});
   let data=await replayResponse(response);
   const deadline=Date.now()+35*60*1000;
   while(data.job){
