@@ -1,5 +1,20 @@
 # PAIPU SELECT application
 
+## v3.10.2 · normal treatment after confirmed recovery
+
+One real successful retrieval after a 540 rest now clears the account's local
+slowdown/probation immediately. The historical error, last attempt and rolling
+usage remain. Unconfirmed recovery retains a single trial credit after its hold
+expires, but account selection no longer places every penalized account behind
+all healthy accounts; it compares current utilization and oldest attempt. No
+synthetic recovery probes or requests to consume unused past allocations.
+Previously successful comebacks are normalized on startup (and reconciled on
+request) from their persisted post-error success, without querying Mahjong Soul.
+Active holds, re-enrollment without retrieval and successes older than the latest
+540 cannot clear a penalty. Global adaptive slowdown and five-hour protections
+remain unchanged. The 20-account baseline returns to one new retrieval per
+minute when all accounts are normal and no global slowdown applies.
+
 ## v3.10.1 · selected account check
 
 Optional private `PAIPU_SELECTED_CHECK_ID`, `PAIPU_SELECTED_CHECK_URL` and

@@ -54,7 +54,7 @@ def test_short_long_limits_credit_recovery_and_preferred_slot_cannot_bypass(stor
     original=make().vault.load();new().operator_status();assert make().vault.load()==original
 
 
-def test_540_holds_persist_penalty_and_comeback_is_single_credit(storage):
+def test_540_hold_persists_and_first_real_success_restores_normal_without_burst(storage):
     db,make,accounts,new=setup_pool(storage)
     def fail(*args):raise GameError('fetch_record',540)
     with pytest.raises(GameError):new().fetch(URL,fail,preferred_slot=1)
@@ -67,10 +67,10 @@ def test_540_holds_persist_penalty_and_comeback_is_single_credit(storage):
     db.now+=18000
     new().fetch(URL,lambda *args:FIXTURE,preferred_slot=1)
     after=make().vault.load()['usage']['load_scheduler']['accounts']['1']
-    assert after['level']==1 and not after['probation'] and after['credits']==0
+    assert after['level']==0 and not after['probation'] and after['credits']==0
     db.now+=400
     with pytest.raises(ReplayLimited) as waiting:new().fetch(URL,lambda *_:pytest.fail('post-rest burst'),preferred_slot=1)
-    assert waiting.value.retry_after>=2000
+    assert waiting.value.retry_after>=800
 
 
 def test_distinct_errors_slow_global_and_idle_time_alone_never_recovers(storage):
@@ -162,7 +162,7 @@ def test_queue_waits_for_budget_without_retrying_provider_or_charging_again(stor
     assert calls==[start,start+60]
 
 
-def test_rest_expiry_does_not_prefer_penalized_account_over_healthy():
+def test_rest_expiry_gives_a_real_recovery_opportunity_without_erasing_penalty():
     from types import SimpleNamespace
     owners=[SimpleNamespace(rate_limit_count=0,cooldown_until=0,unavailable_reason='',status=lambda:{'shared_ready':True}) for _ in range(2)]
     saved={};now=100000
@@ -170,7 +170,53 @@ def test_rest_expiry_does_not_prefer_penalized_account_over_healthy():
     a.update(level=1,probation=True,credits=1.,last=now-18000)
     b.update(credits=1.,last=now-1200,history=[now-1200])
     chosen,_,_,_=policy.plan(saved,owners,list(enumerate(owners)),now)
-    assert chosen[0]==1
+    assert chosen[0]==0
+    assert a['level']==1 and a['probation']
     owners[1].cooldown_until=now+3600
     chosen,_,_,_=policy.plan(saved,owners,[(0,owners[0])],now)
     assert chosen[0]==0
+
+
+def test_existing_verified_comebacks_normalize_once_without_queries_or_history_reset(storage):
+    db,make,accounts,new=setup_pool(storage)
+    saved=make().vault.load()
+    targets=(1,2,3,8,9)
+    for slot in targets:
+        account=policy.account_state(saved,slot,db.now)
+        account.update(level=1,probation=False,last_error=db.now-86400,
+            last=db.now-2000,history=[db.now-2000],asof=db.now-1000,credits=0.2)
+        profile=saved if slot==1 else saved['accounts'][str(slot)]
+        profile.update(last_success_at=db.now-1000,rate_limit_count=0,rate_limit_until=0)
+    saved['usage']['admission']={'marks':[],'pause_until':0,'circuit_until':0,'last_started_at':None}
+    before=copy.deepcopy(saved)
+    make().vault.save(saved)
+    pool=new()
+    restored=make().vault.load()
+    for slot in targets:
+        row=restored['usage']['load_scheduler']['accounts'][str(slot)]
+        assert row['level']==0 and not row['probation']
+        assert row['history']==before['usage']['load_scheduler']['accounts'][str(slot)]['history']
+        assert row['last_error']==before['usage']['load_scheduler']['accounts'][str(slot)]['last_error']
+        profile=restored if slot==1 else restored['accounts'][str(slot)]
+        old=before if slot==1 else before['accounts'][str(slot)]
+        assert all(profile[k]==old[k] for k in ('token','uid','last_success_at','rate_limit_until'))
+    assert restored['usage']['admission']==before['usage']['admission']
+    assert restored['usage']['accounts']==before['usage']['accounts']
+    ciphertext=db.ciphertext;new();assert db.ciphertext==ciphertext
+    assert pool.operator_status()['scheduler']['interval_seconds']==60
+
+
+def test_elapsed_time_and_older_success_cannot_normalize_an_unverified_or_active_hold(storage):
+    db,make,accounts,new=setup_pool(storage)
+    saved=make().vault.load()
+    for slot in (1,2):
+        row=policy.account_state(saved,slot,db.now)
+        row.update(level=1,probation=True,last_error=db.now-10000)
+        profile=saved if slot==1 else saved['accounts'][str(slot)]
+        profile['last_success_at']=db.now-11000 if slot==1 else db.now-1000
+        if slot==2:profile.update(rate_limit_count=1,rate_limit_until=db.now+18000,cooldown_until=db.now+18000)
+    make().vault.save(saved)
+    new()
+    after=make().vault.load()
+    assert after['usage']['load_scheduler']==saved['usage']['load_scheduler']
+    assert after['accounts']['2']['rate_limit_until']==db.now+18000

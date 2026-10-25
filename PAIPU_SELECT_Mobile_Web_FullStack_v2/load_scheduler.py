@@ -14,7 +14,7 @@ REFILL_SECONDS, BURST = 1200, 3
 MAX_LEVEL = 3
 GLOBAL_MIN_GAP = 20
 ERROR_WINDOW, RECOVERY_WINDOW = 600, 21600
-ACCOUNT_RECOVERY_SUCCESSES, GLOBAL_RECOVERY_SUCCESSES = 10, 60
+GLOBAL_RECOVERY_SUCCESSES = 60
 
 
 def number(value):
@@ -90,7 +90,31 @@ def projected(account, now):
         'available_at':available, 'pressure':pressure, 'refill_seconds':period}
 
 
+def reconcile_recovered(saved, accounts, now):
+    """Normalize old penalties only when persisted real success proves recovery.
+
+    Never infer provider recovery from elapsed time, re-enrollment or a cache hit.
+    Preserve histories, last attempt, global protection and earned credits.
+    """
+    raw = (saved or {}).get('usage', {}).get('load_scheduler')
+    if raw is None:return []
+    value = state(saved)
+    changed = []
+    for i,owner in enumerate(accounts):
+        account = value['accounts'].get(str(i+1))
+        success = getattr(owner,'last_success_at',0)
+        if (account and (account['level'] or account['probation']) and number(success)
+            and success > account['last_error'] and not owner.rate_limit_count
+            and not owner.unavailable_reason and owner.cooldown_until <= now):
+            credits = projected(account,now)['credits']
+            account.update(level=0,probation=False,asof=max(now,account['asof']),
+                credits=credits,recovery_at=now)
+            changed.append(i+1)
+    return changed
+
+
 def plan(saved, accounts, candidates, now, cursor=0):
+    reconcile_recovered(saved,accounts,now)
     value = state(saved)
     views = {}
     rate = 0.
@@ -106,8 +130,9 @@ def plan(saved, accounts, candidates, now, cursor=0):
     wait = max(0, global_at-now)
     if not ready:
         wait = max(wait, min((views[i]['available_at']-now for i,a in candidates), default=0))
-    chosen = min(ready, key=lambda item:(value['accounts'][str(item[0]+1)]['level'],
-        value['accounts'][str(item[0]+1)]['probation'], round(views[item[0]]['pressure'],9),
+    # Expired holds receive a single real recovery opportunity. Historical
+    # penalties must not permanently sort them behind every healthy account.
+    chosen = min(ready, key=lambda item:(round(views[item[0]]['pressure'],9),
         value['accounts'][str(item[0]+1)]['last'], (item[0]-cursor)%len(accounts))) if ready and wait <= 1e-6 else None
     return chosen, max(0,wait), interval, views
 
@@ -134,14 +159,11 @@ def outcome(saved, slot, now, *, success=False, limited=False):
             value['level'] = min(MAX_LEVEL,value['level']+1)
             value['errors'] = []
     elif success:
-        # A successful comeback does not erase the accumulated penalty. Discard
-        # holiday credits so this account cannot immediately receive a burst.
-        if account['probation']:
-            account.update(probation=False, credits=0., asof=now)
+        # One real successful retrieval restores normal account treatment.
+        # Discard holiday credits to prevent a post-rest catch-up burst.
+        if account['probation'] or account['level']:
+            account.update(level=0,probation=False,credits=0.,asof=now,recovery_at=now)
         account['successes'] = min(1000000,account['successes']+1)
         value['successes'] = min(1000000,value['successes']+1)
-        if account['level'] and now-max(account['last_error'],account['recovery_at']) >= RECOVERY_WINDOW and account['successes'] >= ACCOUNT_RECOVERY_SUCCESSES:
-            view = projected(account,now)
-            account.update(level=account['level']-1,successes=0,recovery_at=now,asof=now,credits=view['credits'])
         if value['level'] and now-max(value['last_error'],value['recovery_at']) >= RECOVERY_WINDOW and value['successes'] >= GLOBAL_RECOVERY_SUCCESSES:
             value.update(level=value['level']-1,successes=0,recovery_at=now)

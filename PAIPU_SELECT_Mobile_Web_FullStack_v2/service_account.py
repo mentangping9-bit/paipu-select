@@ -310,7 +310,13 @@ class AccountPool:
         if self.vault:
             try:
                 with self.vault.locked():
-                    self._restore_rotation(self.vault.load())
+                    saved = self.vault.load()
+                    self._restore_rotation(saved)
+                    if self.load_control:
+                        restored = load_scheduler.reconcile_recovered(saved,self.accounts,self.clock())
+                        if restored:
+                            self.vault.save(saved)
+                            print('Recovered replay account priorities:', restored, flush=True)
             except (VaultUnavailable, VaultCorrupt, VaultBusy):
                 # The UI and JSON uploads still work. A real retrieval must
                 # reload durable state successfully before claiming any slot.

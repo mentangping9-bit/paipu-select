@@ -1,5 +1,15 @@
 # Authentication investigation — 2026-10-19
 
+## Confirmed account recovery — 2026-10-25, v3.10.2
+
+Clears historical account priority/refill penalties on a real successful
+post-rest fetch, preserves quota history and global holds, and permits a
+bounded real recovery opportunity when a hold expires. Existing verified
+comebacks are reconciled using persisted last_success_at after last_error,
+with no active restriction and no new provider calls. Tests cover exactly the
+five requested historical accounts, unchanged credentials/counters/history,
+idempotent restart, and refusal to normalize active/unconfirmed restrictions.
+
 ## Load-aware admission — 2026-10-24, v3.10.0
 
 Added a bounded credential-free scheduler under encrypted usage.load_scheduler.

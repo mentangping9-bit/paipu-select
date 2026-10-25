@@ -563,7 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.10.1',
+                                  'version': '3.10.2',
                                   'game_connection_reuse': game_connections.stats(),
                                   'sdk_refresh_reuse_seconds': 300,
                                   'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',
@@ -579,7 +579,8 @@ class Handler(SimpleHTTPRequestHandler):
                                   'replay_load_control': {'enabled':service_pool.load_control,'account_min_gap_seconds':400,
                                       'short_window_seconds':600,'short_limit':2,
                                       'long_window_seconds':21600,'long_limit':18,
-                                      'base_refill_seconds':1200,'policy_is_provider_quota':False},
+                                      'base_refill_seconds':1200,'account_recovery':'normal_after_real_success',
+                                      'policy_is_provider_quota':False},
                                   'replay_max_account_attempts': replay_queue.max_account_attempts,
                                   'replay_queue_capacity': replay_queue.max_pending,
                                   'build_commit': BUILD,
