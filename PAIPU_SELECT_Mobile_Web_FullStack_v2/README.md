@@ -1,5 +1,18 @@
 # PAIPU SELECT application
 
+## v3.10.1 · selected account check
+
+Optional private `PAIPU_SELECTED_CHECK_ID`, `PAIPU_SELECTED_CHECK_URL` and
+`PAIPU_SELECTED_CHECK_SLOTS` run one requested replay query per selected account
+(up to five). Claims are persisted atomically with account-budget reservations,
+so the same revision never replays a slot after restart. At most eight bounded
+run records are retained; filling this bound fails closed. The check respects
+account holds, local budgets, shared pacing and the 17-account global stop. It
+waits only for admission without issuing provider probes; actual provider errors
+are never retried. It has a 30-minute maximum duration and no public trigger.
+Clear the three non-secret configuration values after the requested check.
+Normal account selection and all existing protection settings are unchanged.
+
 ## v3.10.0 · load-aware account scheduling
 
 The production pool prefers lower-penalty accounts, then remaining credit and

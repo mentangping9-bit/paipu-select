@@ -563,7 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.10.0',
+                                  'version': '3.10.1',
                                   'game_connection_reuse': game_connections.stats(),
                                   'sdk_refresh_reuse_seconds': 300,
                                   'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',
@@ -829,6 +829,9 @@ if __name__ == '__main__':
     from replay_diagnostic import diagnose_replay
     threading.Thread(target=diagnose_replay,
         args=(service_pool, replay_admission, extract_share_url, fetch_from_mahjongsoul), daemon=True).start()
+    from replay_checks import run as check_selected_accounts
+    threading.Thread(target=check_selected_accounts,
+        args=(service_pool,replay_admission,extract_share_url,fetch_from_mahjongsoul),daemon=True).start()
     from retrieval_validation import validate as validate_reuse
     threading.Thread(target=validate_reuse,args=(service_pool,replay_admission,extract_share_url,
         fetch_from_mahjongsoul,game_connections),daemon=True).start()

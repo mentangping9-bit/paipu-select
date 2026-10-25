@@ -407,7 +407,7 @@ class AccountPool:
         tried = set()
         return lambda: self.fetch(text, fetch, tried=tried)
 
-    def fetch(self, text, fetch, *, tried=None, diagnostic_slot=None, preferred_slot=None):
+    def fetch(self, text, fetch, *, tried=None, diagnostic_slot=None, preferred_slot=None, check_revision=None):
         tried = tried if tried is not None else set()
         with self.lock, self.vault.locked() if self.vault else nullcontext():
             saved = (self.vault.load() or {'version':1}) if self.vault else self.memory_usage
@@ -441,6 +441,10 @@ class AccountPool:
                 load_scheduler.claim(saved,index+1,self.clock())
             else:
                 index, account = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts))
+            if check_revision is not None:
+                if diagnostic_slot != index+1:raise ValueError('Account check requires a private selected slot')
+                from replay_checks import claim
+                claim(saved,check_revision,index+1,self.clock())
             tried.add(index)
             self.cursor = (index+1)%len(self.accounts)
             self.last_slot = index+1
