@@ -58,7 +58,13 @@
           <option value="en">글로벌 영어 (US/EN)</option>
         </select>
         <div id="operatorAccess" hidden><label for="operatorKeyInput" class="field-label">운영자 인증키</label><div class="auth-fields"><input id="operatorKeyInput" type="password" autocomplete="off" spellcheck="false" maxlength="128" placeholder="운영자 인증키"></div><p class="small auth-info">운영자만 계정 인증 설정을 변경할 수 있습니다. 인증키는 저장하지 않습니다.</p></div>
-        <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><button id="accountStatusBtn" type="button" class="linkbtn">조회 계정 상태 확인</button><p id="accountSlotStatus" class="hint" aria-live="polite"></p><section id="accountUsage" class="account-usage" hidden><h3>계정별 조회 통계</h3><p id="usageInfo" class="hint"></p><div id="usageCards"></div></section></div>
+        <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><button id="accountStatusBtn" type="button" class="linkbtn">조회 계정 상태 확인</button><p id="accountSlotStatus" class="hint" aria-live="polite"></p><section id="accountUsage" class="account-usage" hidden><h3>계정별 조회 통계</h3>
+          <dl class="usage-summary">
+            <div><dt>오늘 총 조회 시도</dt><dd id="usageTodayTotal">—</dd></div>
+            <div><dt>누적 총 조회 시도</dt><dd id="usageAllTotal">—</dd></div>
+            <div class="usage-summary-last"><dt>마지막 조회 시도</dt><dd id="usageLastAttempt">—</dd></div>
+          </dl>
+          <p id="usageInfo" class="hint"></p><div id="usageCards"></div></section></div>
         <div id="authLoggedOut">
           <div id="personalEmailFields"><label for="emailInput" class="field-label">Yostar 로그인 이메일</label><div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div></div>
           <button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button>

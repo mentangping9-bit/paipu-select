@@ -1,5 +1,12 @@
 # PAIPU SELECT application
 
+## v3.10.3 · operator usage overview
+
+The operator-only account history now shows today's combined retrieval attempts,
+all-time attempts since tracking began, and the latest attempt time (Korea time)
+above the account cards. It sums the existing authenticated account-status
+response in the browser, with no extra requests, provider calls, or stored data.
+
 ## v3.10.2 · normal treatment after confirmed recovery
 
 One real successful retrieval after a 540 rest now clears the account's local

@@ -563,7 +563,7 @@ class Handler(SimpleHTTPRequestHandler):
             from version_resolver import status as version_status
             self.json_reply(200, {'status': 'ok', 'kr_fetch_available': package_ready(),
                                   'url_fetch_available': package_ready(),
-                                  'version': '3.10.2',
+                                  'version': '3.10.3',
                                   'game_connection_reuse': game_connections.stats(),
                                   'sdk_refresh_reuse_seconds': 300,
                                   'replay_cache_storage': 'encrypted_postgres' if replay_admission.durable else 'memory',

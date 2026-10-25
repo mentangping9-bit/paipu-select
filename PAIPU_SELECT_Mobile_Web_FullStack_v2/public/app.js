@@ -260,6 +260,15 @@ function renderAccounts(data){
  $('accountSlotStatus').textContent=lines.join('\n');
  const date=value=>value?new Intl.DateTimeFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language],{timeZone:'Asia/Seoul',dateStyle:'short',timeStyle:'short'}).format(new Date(value*1000)):t('없음');
  $('accountUsage').hidden=false;
+ const totals=data.accounts.reduce((sum,a)=>({
+  today:sum.today+(a.usage?.today?.attempts??0),
+  total:sum.total+(a.usage?.total?.attempts??0),
+  last:Math.max(sum.last,a.usage?.last_attempt_at??0),
+ }),{today:0,total:0,last:0});
+ const count=value=>new Intl.NumberFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language]).format(value);
+ $('usageTodayTotal').textContent=t('{n}회',{n:count(totals.today)});
+ $('usageAllTotal').textContent=t('{n}회',{n:count(totals.total)});
+ $('usageLastAttempt').textContent=date(totals.last);
  $('usageInfo').textContent=(data.usage_started_at?t('집계 시작: {time} · 한국시간 기준',{time:date(data.usage_started_at)}):t('첫 조회부터 집계됩니다.'))+' '+t('캐시 재사용·대기열 확인·이메일 인증은 제외됩니다. 성공·실패는 처리 완료일 기준입니다.')+(data.usage_persistent?'':' '+t('메모리 통계: 서버 재시작 시 초기화됩니다.'));
  if(data.scheduler?.started_at)$('usageInfo').textContent+=' '+t('부하 기록 시작: {time} · 이 시점 이전 요청은 최근 사용량에 포함되지 않습니다.',{time:date(data.scheduler.started_at)});
  $('usageCards').replaceChildren();
