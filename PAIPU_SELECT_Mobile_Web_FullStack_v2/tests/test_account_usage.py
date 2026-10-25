@@ -113,3 +113,58 @@ def test_no_authentication_or_status_polling_counted_and_bounded_payload(databas
     assert len(saved['usage']['accounts'])==9
     assert saved['usage']['accounts']['9']['total']==[1000,0,1000]
     assert 'private-token' not in database.ciphertext
+
+
+def test_daily_migration_preserves_today_without_inventing_old_days():
+    now=datetime(2026,10,26,2,5,tzinfo=account_usage.KST).timestamp()
+    saved={'version':1,'usage':{'version':1,'started_at':now-3*86400,'accounts':{
+        '1':{'total':[13,7,6],'day':'2026-10-26','today':[1,1,0]},
+        '2':{'total':[15,13,2],'day':'2026-10-25','today':[3,3,0]},
+        '3':{'total':[17,17,0],'day':'2026-10-26','today':[2,2,0]},
+    }}}
+    original=json.loads(json.dumps(saved['usage']['accounts']))
+    assert account_usage.ensure_daily(saved,now)
+    assert not account_usage.ensure_daily(saved,now)
+    result=account_usage.daily_snapshot(saved,now)
+    assert result['started_day']=='2026-10-26' and len(result['days'])==30
+    assert result['days'][-1]==dict(day='2026-10-26',known=True,attempts=3,successes=3,failures=0)
+    assert all(not d['known'] and d['attempts'] is None for d in result['days'][:-1])
+    account_usage.record(saved,1,'attempt',now)
+    assert account_usage.daily_snapshot(saved,now)['days'][-1]['attempts']==4
+    assert original['2']==saved['usage']['accounts']['2']
+
+
+def test_daily_cross_midnight_idle_days_retention_and_no_double_count():
+    start=datetime(2026,10,26,23,59,59,tzinfo=account_usage.KST).timestamp()
+    saved={}
+    account_usage.record(saved,1,'attempt',start)
+    account_usage.record(saved,1,'success',start+2)
+    rows=account_usage.daily_snapshot(saved,start+2)['days']
+    assert rows[-2]['attempts']==1 and rows[-2]['successes']==0
+    assert rows[-1]['attempts']==0 and rows[-1]['successes']==1
+    idle=account_usage.daily_snapshot(saved,start+3*86400)['days'][-1]
+    assert idle['known'] and idle['attempts']==idle['successes']==idle['failures']==0
+    for day in range(100):
+        account_usage.record(saved,1,'attempt',start+day*86400)
+    assert len(saved['usage']['daily']['days'])<=30
+    assert account_usage.daily_snapshot(saved,start+99*86400)['days'][-1]['attempts']==1
+    assert saved['usage']['accounts']['1']['total']==[101,1,0]
+
+
+def test_daily_history_persists_restart_enrollment_and_status_has_no_provider_work(database):
+    key,accounts=enrolled()
+    now=datetime(2026,10,26,1,tzinfo=account_usage.KST).timestamp()
+    pool=AccountPool(accounts,clock=lambda:now)
+    # First authenticated status seeds history only once and does not count a query.
+    status=pool.operator_status()
+    before=database.ciphertext
+    assert status['usage_started_at'] is None
+    assert pool.operator_status()['daily_usage']==status['daily_usage']
+    assert database.ciphertext==before
+    pool.fetch('replay',lambda *_:'ok')
+    accounts[0].enroll(session(accounts[0].email))
+    restored=AccountPool(owners(key),clock=lambda:now+86400).operator_status()
+    assert restored['daily_usage']['days'][-2]['attempts']==1
+    assert restored['daily_usage']['days'][-2]['successes']==1
+    assert restored['daily_usage']['days'][-1]['attempts']==0
+    assert not any('daily_usage' in a for a in pool.flags()['shared_accounts'])

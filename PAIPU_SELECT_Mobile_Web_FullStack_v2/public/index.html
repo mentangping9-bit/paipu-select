@@ -49,30 +49,39 @@
       <div id="urlMode" class="input-content"><label for="paipuInput" class="field-label">작혼 공유 URL</label><div class="url-entry"><textarea id="paipuInput" rows="2" spellcheck="false" placeholder="작혼 패보:https://mahjongsoul.game.yo-star.com/?paipu=..." autocomplete="off"></textarea><button type="button" id="convertUrlBtn" class="btn primary">불러오기</button></div><p class="hint">한국어·日本語·English로 복사한 작혼 패보 공유 문구 전체를 그대로 붙여넣어도 됩니다.</p>
       <div class="notice" id="sharedReady" hidden><strong>공용 패보 조회 계정 연결됨</strong><p>로그인 없이 작혼 공유 링크를 넣어 주세요.</p></div>
       <div class="notice" id="sharedSetup" hidden><strong>공용 조회 계정 설정</strong><p id="sharedSetupDetail"></p></div>
-      <div class="auth-box" id="authPanel" hidden>
-        <div class="auth-title"><span class="auth-circle">🔐</span><div><strong>Yostar 계정 인증</strong><small id="authStatus">작혼 패보를 읽기 위한 이메일 인증</small></div></div>
-        <label class="field-label" for="regionSelect">내 Yostar 계정의 인증 지역</label>
-        <select id="regionSelect">
-          <option value="kr">한국 (KR) · 한섭</option>
-          <option value="jp">일본 (JP) · 일섭</option>
-          <option value="en">글로벌 영어 (US/EN)</option>
-        </select>
-        <div id="operatorAccess" hidden><label for="operatorKeyInput" class="field-label">운영자 인증키</label><div class="auth-fields"><input id="operatorKeyInput" type="password" autocomplete="off" spellcheck="false" maxlength="128" placeholder="운영자 인증키"></div><p class="small auth-info">운영자만 계정 인증 설정을 변경할 수 있습니다. 인증키는 저장하지 않습니다.</p></div>
-        <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><button id="accountStatusBtn" type="button" class="linkbtn">조회 계정 상태 확인</button><p id="accountSlotStatus" class="hint" aria-live="polite"></p><section id="accountUsage" class="account-usage" hidden><h3>계정별 조회 통계</h3>
-          <dl class="usage-summary">
-            <div><dt>오늘 총 조회 시도</dt><dd id="usageTodayTotal">—</dd></div>
-            <div><dt>누적 총 조회 시도</dt><dd id="usageAllTotal">—</dd></div>
-            <div class="usage-summary-last"><dt>마지막 조회 시도</dt><dd id="usageLastAttempt">—</dd></div>
+      <section class="auth-box operator-panel" id="authPanel" hidden>
+        <div class="operator-heading"><div><h2>운영자 대시보드</h2><small id="authStatus"></small></div></div>
+        <div id="operatorAccess" hidden><label for="operatorKeyInput" class="field-label">운영자 인증키</label><div class="operator-unlock"><input id="operatorKeyInput" type="password" autocomplete="off" spellcheck="false" maxlength="128" placeholder="운영자 인증키"><button id="accountStatusBtn" type="button" class="btn outline">조회·새로고침</button></div></div>
+        <section id="accountUsage" hidden>
+          <dl class="operator-metrics">
+            <div><dt>오늘 조회</dt><dd id="usageTodayTotal">—</dd><small id="usageTodayOutcomes"></small></div>
+            <div><dt>누적 조회</dt><dd id="usageAllTotal">—</dd><small>집계 시작 이후</small></div>
+            <div><dt>사용 가능 계정</dt><dd id="usageReadyTotal">—</dd><small id="usageRestTotal"></small></div>
+            <div><dt>마지막 조회</dt><dd id="usageLastAttempt" class="metric-time">—</dd><small>한국시간</small></div>
           </dl>
-          <p id="usageInfo" class="hint"></p><div id="usageCards"></div></section></div>
-        <div id="authLoggedOut">
-          <div id="personalEmailFields"><label for="emailInput" class="field-label">Yostar 로그인 이메일</label><div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div></div>
-          <button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button>
-          <div id="verifyRow" hidden><label for="codeInput" class="field-label">이메일로 받은 인증코드</label><div class="auth-fields"><input id="codeInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="인증코드"><button id="verifyBtn" type="button" class="btn outline">로그인</button></div></div>
-        </div>
-        <div id="authLoggedIn" hidden><span id="signedInEmail"></span><button id="logoutBtn" type="button" class="linkbtn">로그아웃</button></div>
-        <p class="small auth-info" id="authInfo">Yostar 공식 인증 메일을 사용합니다. 비밀번호는 요구하지 않으며 개인 로그인 세션은 서버 메모리에서 2시간 유지됩니다.</p>
-      </div>
+          <div id="operatorFlow" class="operator-flow"></div>
+          <section class="operator-block" aria-labelledby="trendTitle">
+            <div class="operator-section-head"><div><h3 id="trendTitle">일별 패보 조회 추이</h3><small>한국시간 · 조회 시도 기준</small></div><select id="usagePeriod" aria-label="조회 기간"><option value="7">최근 7일</option><option value="30">최근 30일</option></select></div>
+            <div class="trend-legend"><span class="legend-attempt">조회 시도</span><span class="legend-success">성공</span><span class="legend-failure">실패</span></div>
+            <div id="usageChart" class="usage-chart"></div><p id="usageTrendNote" class="operator-caption"></p>
+            <details class="operator-data"><summary>날짜별 수치 보기</summary><div id="usageDailyTable" class="operator-table-wrap"></div></details>
+          </section>
+          <section class="operator-block" aria-labelledby="accountsTitle">
+            <div class="operator-section-head"><h3 id="accountsTitle">계정 현황</h3><select id="accountFilter" aria-label="계정 필터"><option value="all">전체 계정</option><option value="attention">확인 필요</option></select></div>
+            <div id="usageCards" class="operator-table-wrap"></div><p id="accountFilterEmpty" class="operator-caption" hidden>확인이 필요한 계정이 없습니다.</p>
+          </section>
+          <details class="operator-data"><summary>집계 기준</summary><p id="usageInfo" class="hint"></p></details>
+        </section>
+        <details id="operatorSettings" class="operator-settings"><summary>계정 관리 및 상세 설정</summary>
+          <div id="accountSlotField" hidden><label class="field-label" for="accountSlot">등록할 조회 계정</label><select id="accountSlot"><option value="1">1</option></select><p id="selectedAccountEmail" class="hint"></p></div>
+          <label class="field-label" for="regionSelect">내 Yostar 계정의 인증 지역</label><select id="regionSelect"><option value="kr">한국 (KR) · 한섭</option><option value="jp">일본 (JP) · 일섭</option><option value="en">글로벌 영어 (US/EN)</option></select>
+          <div id="authLoggedOut"><div id="personalEmailFields"><label for="emailInput" class="field-label">Yostar 로그인 이메일</label><div class="auth-fields"><input id="emailInput" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div></div>
+            <button id="sendCodeBtn" type="button" class="btn outline">인증 메일 발송</button>
+            <div id="verifyRow" hidden><label for="codeInput" class="field-label">이메일로 받은 인증코드</label><div class="auth-fields"><input id="codeInput" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="인증코드"><button id="verifyBtn" type="button" class="btn outline">로그인</button></div></div>
+          </div>
+          <div id="authLoggedIn" hidden><span id="signedInEmail"></span><button id="logoutBtn" type="button" class="linkbtn">로그아웃</button></div><p class="small auth-info" id="authInfo"></p>
+        </details>
+      </section>
 
       <div id="queuePanel" class="notice" role="status" aria-live="polite" hidden><strong id="queueTitle"></strong><p id="queueOverview" class="queue-overview"></p><p id="queueDetail"></p></div>
       <div id="backendInfo" class="notice" hidden><strong>연결 오류</strong><p id="backendDetail"></p></div>
@@ -108,6 +117,6 @@
   </main>
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
-<script src="./i18n.js"></script><script src="./converter.js"></script><script src="./link-utils.js"></script><script src="./backend.js"></script><script src="./clipboard.js"></script><script src="./service-status.js"></script><script src="./app.js"></script>
+<script src="./i18n.js"></script><script src="./converter.js"></script><script src="./link-utils.js"></script><script src="./backend.js"></script><script src="./clipboard.js"></script><script src="./service-status.js"></script><script src="./operator-dashboard.js"></script><script src="./app.js"></script>
 </body>
 </html>

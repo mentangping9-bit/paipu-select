@@ -198,7 +198,7 @@ function renderAuth(data){
     $('operatorAccess').hidden=!serviceSetup;
     $('sendCodeBtn').textContent=serviceSetup?t('공용 계정 인증 메일 발송'):t('인증 메일 발송');
     $('sharedReady').hidden=true;
-    $('sharedSetup').hidden=!operatorMode||!data.shared_configured;
+    $('sharedSetup').hidden=true;
     $('authPanel').hidden=!operatorMode;
     if(data.shared_configured){
       const storageText=data.shared_session_storage==='encrypted_postgres'
@@ -218,7 +218,7 @@ function renderAuth(data){
       $('accountSlot').replaceChildren();
       for(const account of data.shared_accounts||[{slot:1,ready:sharedReady}]){
         const option=document.createElement('option');option.value=String(account.slot);
-        option.textContent=t('조회 계정 {n}',{n:account.slot})+' · '+String(account.region||'kr').toUpperCase()+' · '+(account.ready?t('연결됨'):t('최초 인증 필요'))+(account.cooling?' · '+t('일시 휴식 중'):'');
+        option.textContent=t('조회 계정 {n}',{n:account.slot})+' · '+String(account.region||'kr').toUpperCase()+' · '+(account.ready?t('연결됨'):t('최초 인증 필요'));
         $('accountSlot').append(option);
       }
       if([...$('accountSlot').options].some(o=>o.value===selected))$('accountSlot').value=selected;
@@ -236,64 +236,25 @@ $('sendCodeBtn').onclick=async()=>{
   clearError();btn.textContent=t('발송 중…');
   try{
     await api('/api/auth/send-code',serviceSetup?{service_account:true,account_slot:Number($('accountSlot').value)}:{email:$('emailInput').value.trim(),region:$('regionSelect').value});
-    $('verifyRow').hidden=false;toast('Yostar 인증 메일을 확인해 주세요.');$('codeInput').focus();
+    $('operatorSettings').open=true;$('verifyRow').hidden=false;toast('Yostar 인증 메일을 확인해 주세요.');$('codeInput').focus();
   }catch(e){authError(e);}
   finally{btn.disabled=false;btn.textContent=serviceSetup?t('공용 계정 인증 메일 발송'):t('인증 메일 발송');}
 };
 let accountSnapshot=null;
 function renderAccounts(data){
  accountSnapshot=data;
- const email=slot=>data.accounts.find(a=>a.slot===slot)?.email||t('없음');
- const lines=[t('현재 처리 계정: {email}',{email:email(data.active_slot)}),
-  t('최근 조회 계정: {email}',{email:email(data.last_used_slot)}),
-  t('최근 성공 계정: {email}',{email:email(data.last_success_slot)}),
-  t('다음 조회 계정: {email}',{email:email(data.next_slot)})];
- if(data.scheduler?.enabled)lines.push(t('현재 신규 조회 간격: {n}초',{n:data.scheduler.interval_seconds}));
- if(data.protection?.paused)lines.unshift(t('신규 조회 일시 중단 · 남은 시간 {n}분',{n:Math.ceil(data.protection.retry_after/60)}));
- if(Number.isInteger(data.protection?.locked_accounts))lines.push(t('540 휴식 중인 계정: {n}개 · 17개 이상이면 전체 조회 중단',{n:data.protection.locked_accounts}));
- for(const a of data.accounts){
-  const state=!a.authenticated?t('최초 인증 필요'):a.unavailable_reason?t('게임 로그인 확인 필요')+' ('+a.unavailable_reason+')':
-   a.cooldown_seconds>0?t('휴식 {n}초',{n:a.cooldown_seconds}):
-   a.rate_limit_count>0?t('조회 제한(540) 이력 · 재시도 가능'):a.last_success_at?t('패보 조회 성공 확인'):t('인증 완료 · 조회 확인 전');
-  lines.push(t('조회 계정 {n}',{n:a.slot})+' · '+a.email+' · '+a.region.toUpperCase()+' · '+state);
- }
- $('accountSlotStatus').textContent=lines.join('\n');
- const date=value=>value?new Intl.DateTimeFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language],{timeZone:'Asia/Seoul',dateStyle:'short',timeStyle:'short'}).format(new Date(value*1000)):t('없음');
- $('accountUsage').hidden=false;
- const totals=data.accounts.reduce((sum,a)=>({
-  today:sum.today+(a.usage?.today?.attempts??0),
-  total:sum.total+(a.usage?.total?.attempts??0),
-  last:Math.max(sum.last,a.usage?.last_attempt_at??0),
- }),{today:0,total:0,last:0});
- const count=value=>new Intl.NumberFormat({ko:'ko-KR',en:'en-GB',ja:'ja-JP'}[i18n.language]).format(value);
- $('usageTodayTotal').textContent=t('{n}회',{n:count(totals.today)});
- $('usageAllTotal').textContent=t('{n}회',{n:count(totals.total)});
- $('usageLastAttempt').textContent=date(totals.last);
- $('usageInfo').textContent=(data.usage_started_at?t('집계 시작: {time} · 한국시간 기준',{time:date(data.usage_started_at)}):t('첫 조회부터 집계됩니다.'))+' '+t('캐시 재사용·대기열 확인·이메일 인증은 제외됩니다. 성공·실패는 처리 완료일 기준입니다.')+(data.usage_persistent?'':' '+t('메모리 통계: 서버 재시작 시 초기화됩니다.'));
- if(data.scheduler?.started_at)$('usageInfo').textContent+=' '+t('부하 기록 시작: {time} · 이 시점 이전 요청은 최근 사용량에 포함되지 않습니다.',{time:date(data.scheduler.started_at)});
- $('usageCards').replaceChildren();
- for(const a of data.accounts){
-  const card=document.createElement('article');card.className='usage-card';
-  const title=document.createElement('strong');title.textContent=t('조회 계정 {n}',{n:a.slot})+' · '+a.email;card.append(title);
-  const table=document.createElement('table');
-  const header=table.createTHead().insertRow();
-  for(const label of ['기간','조회 시도','성공','실패']){const th=document.createElement('th');th.scope='col';th.textContent=t(label);header.append(th);}
-  const body=table.createTBody();
-  for(const [key,label] of [['today','오늘'],['total','전체']]){const row=body.insertRow();const th=document.createElement('th');th.scope='row';th.textContent=t(label);row.append(th);for(const metric of ['attempts','successes','failures']){row.insertCell().textContent=String(a.usage?.[key]?.[metric]??0);}}
-  card.append(table);
-  const detail=document.createElement('p');detail.className='hint';detail.textContent=t('최근 시도: {time}',{time:date(a.usage?.last_attempt_at)})+' · '+t('진행 중·결과 미확인: {n}',{n:a.usage?.unfinished??0});
-  if(a.usage?.last_failure_at)detail.textContent+=' · '+t('최근 실패: {time}',{time:date(a.usage.last_failure_at)})+(Number.isInteger(a.usage.last_error_code)?' ('+a.usage.last_error_code+')':'');
-  const budget=data.scheduler?.accounts?.[String(a.slot)];
-  if(budget)detail.textContent+=' · '+t('최근 10분 {short}회 · 최근 6시간 {long}회 · 보호 대기 {wait}초',{short:budget.short_attempts,long:budget.long_attempts,wait:budget.retry_after})+' · '+t('조회 여유 회복 간격: {n}초',{n:budget.refill_seconds})+(budget.probation?' · '+t('복귀 후 확인 단계'):'');
-  card.append(detail);$('usageCards').append(card);
- }
+ globalThis.PaipuOperatorDashboard.render(data);
 }
 async function refreshAccounts(){
  if(!serviceSetup)return;
- try{renderAccounts(await api('/api/auth/accounts'));}catch(e){authError(e);}
+ const key=$('operatorKeyInput').value,button=$('accountStatusBtn');
+ button.disabled=true;button.textContent=t('불러오는 중…');
+ try{const data=await api('/api/auth/accounts');if(key===$('operatorKeyInput').value)renderAccounts(data);}catch(e){authError(e);}
+ finally{button.disabled=false;button.textContent=t('조회·새로고침');}
 }
 $('accountStatusBtn').onclick=refreshAccounts;
-$('accountSlot').onchange=()=>{$('verifyRow').hidden=true;$('codeInput').value='';clearError();const selected=(authSnapshot?.shared_accounts||[]).find(a=>String(a.slot)===$('accountSlot').value);if(selected)$('regionSelect').value=selected.region||'kr';};
+$('operatorKeyInput').addEventListener('input',()=>{accountSnapshot=null;globalThis.PaipuOperatorDashboard.clear();});
+$('accountSlot').onchange=()=>{$('verifyRow').hidden=true;$('codeInput').value='';clearError();const selected=(authSnapshot?.shared_accounts||[]).find(a=>String(a.slot)===$('accountSlot').value);if(selected)$('regionSelect').value=selected.region||'kr';globalThis.PaipuOperatorDashboard.selectedAccount();};
 $('verifyBtn').onclick=async()=>{
   const btn=$('verifyBtn');btn.disabled=true;btn.textContent=t('인증 중…');clearError();
   try{

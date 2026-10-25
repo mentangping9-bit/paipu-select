@@ -1,5 +1,24 @@
 # PAIPU SELECT application
 
+## v3.11.0 · compact operator dashboard
+
+The authenticated operator view uses four summary metrics, a 7/30-day retrieval
+chart and one numbered account table. Email, error history and budgets appear
+only in the selected account's folded detail; enrollment settings are collapsed.
+The public replay workflow, authentication boundary and scheduler are unchanged.
+
+Daily attempt/success/failure totals reuse the encrypted session vault and its
+existing lock/write transaction. Migration seeds only the current Korea-time day
+from existing account counters. Earlier days are explicitly unknown; subsequent
+idle days are zero. At most 30 days are retained, including across restarts and
+re-enrollment. A query crossing midnight records its attempt and completion on
+their respective days. These are upstream retrieval attempts, not unique users;
+cache hits, JSON uploads, polling and email verification remain excluded.
+No new database, analytics provider, visitor identifiers or background job.
+
+Validation: `node tests/check-operator-dashboard.js`, the existing JavaScript
+checks, and `python -m pytest -q tests` (with project dependencies installed).
+
 ## v3.10.3 · operator usage overview
 
 The operator-only account history now shows today's combined retrieval attempts,

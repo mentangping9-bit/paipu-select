@@ -378,6 +378,8 @@ class AccountPool:
             saved = (self.vault.load() or {'version':1}) if self.vault else self.memory_usage
             if self.vault:
                 self._restore_rotation(saved)
+            if account_usage.ensure_daily(saved, self.clock()) and self.vault:
+                self.vault.save(saved)
             eligible = self.eligible()
             next_item = min(eligible, key=lambda item:(item[0]-self.cursor)%len(self.accounts)) if eligible else None
             schedule = None
@@ -391,7 +393,8 @@ class AccountPool:
                         'slowdown_level':load_scheduler.state(saved)['accounts'][str(i+1)]['level'],
                         'probation':load_scheduler.state(saved)['accounts'][str(i+1)]['probation']} for i,a in enumerate(self.accounts) for view in [views[i]]}}
 
-            return {'scheduler':schedule,'usage_started_at':(saved or {}).get('usage', {}).get('started_at'),
+            return {'scheduler':schedule,'daily_usage':account_usage.daily_snapshot(saved, self.clock()),
+                    'usage_started_at':(saved or {}).get('usage', {}).get('started_at'),
                     'usage_timezone':'Asia/Seoul', 'usage_day':account_usage.day_at(self.clock()),
                     'usage_persistent':bool(self.vault),
                     'active_slot':self.active_slot, 'last_used_slot':self.last_slot,
