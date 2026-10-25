@@ -5,6 +5,7 @@
 The authenticated operator view uses four summary metrics, a 7/30-day retrieval
 chart and one numbered account table. Email, error history and budgets appear
 only in the selected account's folded detail; enrollment settings are collapsed.
+The operator route opens directly onto the dashboard with a compact logo header.
 The public replay workflow, authentication boundary and scheduler are unchanged.
 
 Daily attempt/success/failure totals reuse the encrypted session vault and its

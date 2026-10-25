@@ -29,6 +29,7 @@ function setReplayCooldown(data,response){
 let rounds = []; let chosen = new Set(); let mode = 'url'; let latestFile = ''; let busy = false;
 let koreanServerReady = null; let authenticated = false; let sharedReady = false; let serviceSetup = false;
 const operatorMode = new URL(location.href).searchParams.get('setup') === '1';
+document.documentElement.classList.toggle('operator-mode',operatorMode);
 // Hidden entry is navigation only; server-side operator authorization is unchanged.
 const openOperator=()=>location.assign((backend.origin||location.origin)+'/?setup=1');
 document.addEventListener('keydown',event=>{if(event.altKey&&event.shiftKey&&event.code==='KeyA'){event.preventDefault();openOperator();}});
